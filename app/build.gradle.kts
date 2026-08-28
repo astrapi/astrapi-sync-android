@@ -71,6 +71,12 @@ dependencies {
     implementation(libs.documentfile)
     implementation(libs.security.crypto)
 
+    implementation(libs.camera.core)
+    implementation(libs.camera.camera2)
+    implementation(libs.camera.lifecycle)
+    implementation(libs.camera.view)
+    implementation(libs.mlkit.barcode.scanning)
+
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
 }

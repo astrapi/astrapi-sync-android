@@ -14,6 +14,26 @@ data class PairRequest(
     val platform: String = "",
 )
 
+/** QR-Payload aus dem Pairing-Dialog des Servers
+ * (astrapi_sync/modules/devices/ui/pairing.py::_qr_svg()) -- dieselben zwei
+ * Felder wie bei PairRequest.token + die Server-URL, damit beim Scannen
+ * nichts mehr von Hand eingetippt werden muss. */
+@Serializable
+data class PairingQrPayload(
+    @SerialName("server_url") val serverUrl: String,
+    val token: String,
+) {
+    companion object {
+        /** Liefert null bei kaputtem JSON, fehlenden/leeren Feldern oder
+         * QR-Codes ohne Bezug zu astrapi-sync -- der Scanner ignoriert
+         * solche Treffer dann einfach weiter, statt einen Fehlerdialog für
+         * z.B. einen falsch gescannten fremden QR-Code zu zeigen. */
+        fun parse(raw: String): PairingQrPayload? = runCatching {
+            ApiClient.json.decodeFromString(serializer(), raw)
+        }.getOrNull()?.takeIf { it.serverUrl.isNotBlank() && it.token.isNotBlank() }
+    }
+}
+
 @Serializable
 data class PairResult(
     @SerialName("device_id") val deviceId: String,

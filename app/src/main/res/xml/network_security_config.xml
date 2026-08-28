@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- sync.simpsons.lan läuft mit einem selbstsignierten Zertifikat über eine
+     eigene interne CA (kein öffentlicher Aussteller). Ohne diese Config
+     lehnt die App (anders als der Browser, der Nutzerzertifikate akzeptiert)
+     das TLS-Handshake ab, da Android seit API 24 Apps standardmäßig nur
+     System-CAs vertrauen lässt. Bewusst nur für simpsons.lan + Subdomains
+     gelockert, nicht global für die ganze App. -->
+<network-security-config>
+    <domain-config>
+        <domain includeSubdomains="true">simpsons.lan</domain>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </domain-config>
+</network-security-config>

@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import de.astrapi.sync.SyncApp
 import de.astrapi.sync.network.ApiClient
+import de.astrapi.sync.network.PairingQrPayload
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -16,6 +17,7 @@ data class PairingUiState(
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
     val paired: Boolean = false,
+    val showScanner: Boolean = false,
 )
 
 class PairingViewModel(application: Application) : AndroidViewModel(application) {
@@ -31,6 +33,26 @@ class PairingViewModel(application: Application) : AndroidViewModel(application)
 
     fun onPairingCodeChange(value: String) {
         _uiState.value = _uiState.value.copy(pairingCode = value, errorMessage = null)
+    }
+
+    fun onScanQrClicked() {
+        _uiState.value = _uiState.value.copy(showScanner = true, errorMessage = null)
+    }
+
+    fun onScanCancelled() {
+        _uiState.value = _uiState.value.copy(showScanner = false)
+    }
+
+    /** Übernimmt Server-URL + Token aus dem gescannten QR-Code und stößt das
+     * Koppeln direkt an -- der ganze Sinn des Scannens ist, dass danach
+     * nichts mehr von Hand eingetippt/bestätigt werden muss. */
+    fun onQrScanned(payload: PairingQrPayload) {
+        _uiState.value = _uiState.value.copy(
+            serverUrl = payload.serverUrl,
+            pairingCode = payload.token,
+            showScanner = false,
+        )
+        pair()
     }
 
     fun pair() {
