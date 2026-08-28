@@ -37,4 +37,9 @@ data class FolderBindingEntity(
     @PrimaryKey val folderId: String,
     val treeUri: String,
     val description: String,
+    /** Epoch-Millis des letzten erfolgreichen syncFolderOnce()-Laufs,
+     * null solange noch nie synchronisiert -- persistiert (anders als
+     * der nur session-lokale statusText in FolderUiItem), damit die
+     * Karte auch nach App-Neustart zeigt, wie aktuell ein Ordner ist. */
+    val lastSyncedAt: Long? = null,
 )

@@ -2,6 +2,7 @@ package de.astrapi.sync
 
 import android.app.Application
 import de.astrapi.sync.data.AppDatabase
+import de.astrapi.sync.data.AppPreferences
 import de.astrapi.sync.data.SecurePrefs
 import de.astrapi.sync.network.ApiClient
 
@@ -11,6 +12,7 @@ import de.astrapi.sync.network.ApiClient
 class SyncApp : Application() {
 
     val securePrefs by lazy { SecurePrefs(this) }
+    val preferences by lazy { AppPreferences(this) }
     val database by lazy { AppDatabase.get(this) }
 
     /** Neu erstellt statt gecacht -- Server-URL/Token können sich

@@ -56,4 +56,7 @@ interface SyncStateDao {
 
     @Query("DELETE FROM folder_bindings WHERE folderId = :folderId")
     suspend fun removeBinding(folderId: String)
+
+    @Query("UPDATE folder_bindings SET lastSyncedAt = :timestamp WHERE folderId = :folderId")
+    suspend fun updateLastSyncedAt(folderId: String, timestamp: Long)
 }

@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [KnownFileEntity::class, KnownDirEntity::class, FolderBindingEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -22,7 +22,14 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "astrapi-sync.db",
-                ).build().also { instance = it }
+                )
+                    // App ist noch in aktiver Entwicklung, keine echten
+                    // Installationen mit schützenswertem Bestand -- ein
+                    // formales Migration()-Objekt für v1 -> v2 wäre
+                    // Aufwand ohne Nutzen. Vor dem ersten echten Rollout
+                    // sollte hier eine richtige Migration stehen.
+                    .fallbackToDestructiveMigration(dropAllTables = true)
+                    .build().also { instance = it }
             }
     }
 }
