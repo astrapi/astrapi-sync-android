@@ -37,7 +37,13 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         for (binding in bindings) {
             try {
                 val result = engine.syncFolderOnce(binding.folderId, Uri.parse(binding.treeUri), label)
-                if (!result.aborted) {
+                val total = result.uploaded.size + result.downloaded.size +
+                    result.deletedLocal.size + result.deletedRemote.size
+                // Nur bei echter Änderung aktualisieren -- muss zur
+                // Server-Definition von "Letzter Lauf" passen (Activity
+                // Log bekommt bei total == 0 bewusst keinen Eintrag,
+                // sync.py::log_sync_summary(), T-212-SYNC).
+                if (!result.aborted && total > 0) {
                     dao.updateLastSyncedAt(binding.folderId, System.currentTimeMillis())
                 }
             } catch (_: Exception) {

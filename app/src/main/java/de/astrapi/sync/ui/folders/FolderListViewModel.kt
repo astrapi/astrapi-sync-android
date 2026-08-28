@@ -10,6 +10,7 @@ import de.astrapi.sync.network.FolderInfo
 import de.astrapi.sync.sync.SyncEngine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 data class FolderUiItem(
@@ -44,30 +45,43 @@ class FolderListViewModel(application: Application) : AndroidViewModel(applicati
     val uiState: StateFlow<FolderListUiState> = _uiState
 
     init {
-        loadBound()
+        observeBound()
     }
 
     /** Nur lokal bereits verbundene Ordner -- kein Server-Aufruf nötig,
      * die Beschreibung wurde beim Verbinden schon mitgespeichert. Zeigt
      * bewusst nichts an, bevor der Nutzer aktiv über "+" einen Ordner
      * hinzugefügt hat, statt wie zuvor sofort alle freigegebenen Ordner
-     * der Reihe nach aufzulisten. */
-    fun loadBound() {
+     * der Reihe nach aufzulisten.
+     *
+     * Reaktiv (Flow statt einmaligem suspend-Aufruf) -- der periodische
+     * SyncWorker im Hintergrund schreibt in dieselbe Tabelle, während der
+     * Bildschirm schon offen sein kann. Ohne Beobachtung bliebe die
+     * Karte nach einem Hintergrund-Sync auf einem veralteten Stand
+     * stehen, bis der Bildschirm neu geöffnet wird. session-lokale
+     * Felder (statusText/isSyncing) bleiben beim Zusammenführen mit
+     * jeder neuen Emission erhalten, da sie nicht aus der DB kommen. */
+    private fun observeBound() {
         _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
         viewModelScope.launch {
             try {
-                val bindings = dao.allBindings()
-                _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    folders = bindings.map { b ->
-                        FolderUiItem(
-                            folderId = b.folderId,
-                            description = b.description,
-                            boundUri = Uri.parse(b.treeUri),
-                            lastSyncedAt = b.lastSyncedAt,
-                        )
-                    },
-                )
+                dao.allBindingsFlow().collectLatest { bindings ->
+                    val existingById = _uiState.value.folders.associateBy { it.folderId }
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        folders = bindings.map { b ->
+                            val existing = existingById[b.folderId]
+                            FolderUiItem(
+                                folderId = b.folderId,
+                                description = b.description,
+                                boundUri = Uri.parse(b.treeUri),
+                                lastSyncedAt = b.lastSyncedAt,
+                                statusText = existing?.statusText,
+                                isSyncing = existing?.isSyncing ?: false,
+                            )
+                        },
+                    )
+                }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
@@ -120,8 +134,9 @@ class FolderListViewModel(application: Application) : AndroidViewModel(applicati
     fun bindFolder(folderId: String, description: String, treeUri: Uri) {
         viewModelScope.launch {
             dao.upsertBinding(FolderBindingEntity(folderId, treeUri.toString(), description))
+            // Kein manuelles Neuladen nötig -- observeBound() bekommt den
+            // neuen Ordner automatisch über den Flow mit.
             _uiState.value = _uiState.value.copy(showAddSheet = false, availableFolders = emptyList())
-            loadBound()
         }
     }
 
@@ -133,18 +148,23 @@ class FolderListViewModel(application: Application) : AndroidViewModel(applicati
                 val engine = SyncEngine(app, app.apiClient(), dao)
                 val label = app.securePrefs.deviceLabel.ifBlank { "android" }
                 val result = engine.syncFolderOnce(folderId, item.boundUri, label)
+                val total = result.uploaded.size + result.downloaded.size +
+                    result.deletedLocal.size + result.deletedRemote.size
                 val text = when {
                     result.aborted -> "Abgebrochen: ${result.reason}"
-                    else -> {
-                        val total = result.uploaded.size + result.downloaded.size +
-                            result.deletedLocal.size + result.deletedRemote.size
-                        if (total == 0) "Bereits aktuell"
-                        else "${result.uploaded.size} hoch, ${result.downloaded.size} runter, " +
-                            "${result.deletedLocal.size + result.deletedRemote.size} gelöscht" +
-                            if (result.conflicts.isNotEmpty()) ", ${result.conflicts.size} Konflikt(e)" else ""
-                    }
+                    total == 0 -> "Bereits aktuell"
+                    else -> "${result.uploaded.size} hoch, ${result.downloaded.size} runter, " +
+                        "${result.deletedLocal.size + result.deletedRemote.size} gelöscht" +
+                        if (result.conflicts.isNotEmpty()) ", ${result.conflicts.size} Konflikt(e)" else ""
                 }
-                val now = if (result.aborted) null else System.currentTimeMillis()
+                // Nur bei echter Änderung aktualisieren -- muss zur
+                // Server-Definition von "Letzter Lauf" passen (Activity
+                // Log bekommt bei total == 0 bewusst keinen Eintrag,
+                // sync.py::log_sync_summary(), T-212-SYNC). Sonst zeigt
+                // die App "vor 0 Minuten synchronisiert", obwohl der
+                // Server für denselben folgenlosen Check gar nichts
+                // vermerkt hat.
+                val now = if (!result.aborted && total > 0) System.currentTimeMillis() else null
                 if (now != null) dao.updateLastSyncedAt(folderId, now)
                 updateItem(folderId) {
                     it.copy(

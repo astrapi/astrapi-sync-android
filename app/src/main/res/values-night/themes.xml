@@ -1,0 +1,9 @@
+<resources>
+    <!-- Dunkles Gegenstueck zu values/themes.xml. Deckt den kurzen
+         Moment vor dem ersten Compose-Frame ab, wenn das System auf
+         Dunkles Design steht (sonst blitzt beim Start kurz ein heller
+         Hintergrund auf). Greift auf Basis der Systemeinstellung, nicht
+         der In-App-Auswahl, die kann davon abweichen, siehe
+         MainActivity-Statusleisten-Kontrast fuer den Compose-Teil. -->
+    <style name="Theme.AstrapiSync" parent="android:Theme.Material.NoActionBar" />
+</resources>

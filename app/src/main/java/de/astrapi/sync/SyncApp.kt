@@ -38,10 +38,16 @@ class SyncApp : Application() {
 
     /** Periodischer Hintergrund-Sync aller gebundenen Ordner, siehe
      * SyncWorker-Doc-Kommentar für die Begründung gegen einen
-     * Dauer-Service. KEEP statt REPLACE, damit ein bereits laufender
-     * Zeitplan bei jedem App-Start/erneutem Pairing nicht neu anläuft. */
+     * Dauer-Service. UPDATE (nicht KEEP) ist nötig, damit eine geänderte
+     * Intervall-Einstellung den bereits laufenden Zeitplan tatsächlich
+     * neu einplant, statt bis zum nächsten App-Start liegen zu bleiben --
+     * WorkManager übernimmt dabei selbst, den nächsten Lauf sinnvoll
+     * neu zu berechnen statt den Zeitplan komplett zu verwerfen. */
     fun scheduleBackgroundSync() {
-        val request = PeriodicWorkRequestBuilder<SyncWorker>(30, TimeUnit.MINUTES)
+        val request = PeriodicWorkRequestBuilder<SyncWorker>(
+            preferences.syncIntervalMinutes.value,
+            TimeUnit.MINUTES,
+        )
             .setConstraints(
                 Constraints.Builder()
                     .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -51,7 +57,7 @@ class SyncApp : Application() {
             .build()
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             SYNC_WORK_NAME,
-            ExistingPeriodicWorkPolicy.KEEP,
+            ExistingPeriodicWorkPolicy.UPDATE,
             request,
         )
     }

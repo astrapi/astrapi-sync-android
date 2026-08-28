@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface SyncStateDao {
@@ -47,6 +48,15 @@ interface SyncStateDao {
 
     @Query("SELECT * FROM folder_bindings")
     suspend fun allBindings(): List<FolderBindingEntity>
+
+    /** Reaktiv statt einmalig -- Room feuert bei jeder Änderung an
+     * folder_bindings neu, unabhängig davon, ob sie über einen manuellen
+     * Sync, das Hinzufügen eines Ordners oder den periodischen
+     * SyncWorker im Hintergrund passiert. Damit bleibt die Ordnerliste
+     * aktuell, auch wenn der Hintergrund-Sync schreibt, während der
+     * Bildschirm bereits offen ist. */
+    @Query("SELECT * FROM folder_bindings")
+    fun allBindingsFlow(): Flow<List<FolderBindingEntity>>
 
     @Query("SELECT * FROM folder_bindings WHERE folderId = :folderId")
     suspend fun binding(folderId: String): FolderBindingEntity?
