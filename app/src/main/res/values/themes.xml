@@ -1,0 +1,5 @@
+<resources>
+    <!-- Reines Fenster-/Splash-Theme fuer die Zeit vor dem ersten Compose-Frame;
+         die eigentliche UI-Gestaltung passiert komplett in ui/theme/ (Compose). -->
+    <style name="Theme.AstrapiSync" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
