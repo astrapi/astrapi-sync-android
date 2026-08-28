@@ -72,6 +72,7 @@ class PairingViewModel(application: Application) : AndroidViewModel(application)
                     deviceId = result.deviceId
                     deviceLabel = label
                 }
+                app.scheduleBackgroundSync()
                 _uiState.value = _uiState.value.copy(isLoading = false, paired = true)
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
