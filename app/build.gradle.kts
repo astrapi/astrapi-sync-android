@@ -1,3 +1,5 @@
+import java.util.Properties
+
 // Kein org.jetbrains.kotlin.android-Plugin -- seit AGP 9 bringt
 // com.android.application die Kotlin-Unterstützung eingebaut mit (siehe
 // Kommentar in der Root-build.gradle.kts).
@@ -6,6 +8,17 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
+}
+
+// Signierschlüssel liegt bewusst außerhalb des Repos, Zugangsdaten in einer
+// git-ignorierten keystore.properties (gleiches Muster wie local.properties) --
+// nie Passwörter direkt in dieser eingecheckten Datei. Fehlt die Datei (z.B.
+// auf einer frischen Maschine ohne Schlüssel), baut assembleRelease weiterhin,
+// nur unsigniert statt mit dem echten App-Schlüssel.
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(keystorePropertiesFile.inputStream())
 }
 
 android {
@@ -18,16 +31,30 @@ android {
         applicationId = "de.astrapi.sync"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 3
+        versionName = "0.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            create("release") {
+                storeFile = file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["storePassword"] as String
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
@@ -78,6 +105,13 @@ dependencies {
     implementation(libs.camera.view)
     implementation(libs.mlkit.barcode.scanning)
     implementation(libs.work.runtime.ktx)
+    // com.google.crypto.tink:tink (Desktop-Variante) ausgeschlossen -- kollidiert
+    // im Dex-Merge mit tink-android (via androidx.security:security-crypto,
+    // SecurePrefs.kt), das dieselben Klassen bereitstellt und für Android
+    // ohnehin die richtige Wahl ist.
+    implementation(libs.unifiedpush.connector) {
+        exclude(group = "com.google.crypto.tink", module = "tink")
+    }
 
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)

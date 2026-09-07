@@ -1,5 +1,6 @@
 package de.astrapi.sync.ui.settings
 
+import android.app.Activity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -34,22 +35,27 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import de.astrapi.sync.ui.theme.AccentColor
 import de.astrapi.sync.ui.theme.ThemeMode
 import de.astrapi.sync.ui.theme.contrastingIcon
 import de.astrapi.sync.ui.theme.dynamicColorSupported
+import org.unifiedpush.android.connector.UnifiedPush
 
 /** Aufbau (Überschrift + eigener Block pro Abschnitt) ist so gewählt,
  * dass sich weitere Einstellungen später ohne Umbau ergänzen lassen. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = viewModel()) {
+    val context = LocalContext.current
     val themeMode by viewModel.themeMode.collectAsState()
     val accentColor by viewModel.accentColor.collectAsState()
     val useDynamicColor by viewModel.useDynamicColor.collectAsState()
     val syncIntervalMinutes by viewModel.syncIntervalMinutes.collectAsState()
+    val realtimeSyncEnabled by viewModel.realtimeSyncEnabled.collectAsState()
+    val realtimeSyncError by viewModel.realtimeSyncError.collectAsState()
     val themeOptions = listOf(
         Triple(ThemeMode.SYSTEM, "System", Icons.Default.BrightnessAuto),
         Triple(ThemeMode.LIGHT, "Hell", Icons.Default.LightMode),
@@ -153,6 +159,47 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = viewModel(
                         Text(label)
                     }
                 }
+            }
+
+            Text("Echtzeit-Sync", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 28.dp))
+            val toggleRealtimeSync = {
+                if (realtimeSyncEnabled) {
+                    viewModel.disableRealtimeSync()
+                } else {
+                    val activity = context as? Activity
+                    if (activity != null) {
+                        UnifiedPush.tryPickDistributor(activity) { picked ->
+                            viewModel.onDistributorPicked(picked)
+                        }
+                    }
+                }
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp)
+                    .selectable(selected = realtimeSyncEnabled, onClick = toggleRealtimeSync),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Sofort synchronisieren", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Server weckt die App bei Änderungen sofort, statt auf den " +
+                            "nächsten Intervall-Lauf zu warten (braucht eine UnifiedPush-" +
+                            "fähige App wie ntfy)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = realtimeSyncEnabled, onCheckedChange = { toggleRealtimeSync() })
+            }
+            if (realtimeSyncError != null) {
+                Text(
+                    realtimeSyncError!!,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
             }
         }
     }

@@ -56,6 +56,19 @@ class AppPreferences(context: Context) {
         _syncIntervalMinutes.value = minutes
     }
 
+    /** Default false -- Registrierung ist eine bewusste Nutzerentscheidung,
+     * kein automatisches Verhalten beim Pairing (kein UnifiedPush-
+     * Distributor wie ntfy garantiert installiert). Nur der reine Ein/Aus-
+     * Zustand steht hier, die eigentliche Registrierung/Fehlerbehandlung
+     * läuft im SettingsViewModel. */
+    private val _realtimeSyncEnabled = MutableStateFlow(prefs.getBoolean(KEY_REALTIME_SYNC, false))
+    val realtimeSyncEnabled: StateFlow<Boolean> = _realtimeSyncEnabled
+
+    fun setRealtimeSyncEnabled(value: Boolean) {
+        prefs.edit().putBoolean(KEY_REALTIME_SYNC, value).apply()
+        _realtimeSyncEnabled.value = value
+    }
+
     companion object {
         /** WorkManager erzwingt ohnehin ein Minimum von 15 Min. für
          * periodische Arbeit -- die Auswahl im SettingsScreen bietet
@@ -66,5 +79,6 @@ class AppPreferences(context: Context) {
         private const val KEY_DYNAMIC_COLOR = "use_dynamic_color"
         private const val KEY_ACCENT_COLOR = "accent_color"
         private const val KEY_SYNC_INTERVAL_MINUTES = "sync_interval_minutes"
+        private const val KEY_REALTIME_SYNC = "realtime_sync_enabled"
     }
 }

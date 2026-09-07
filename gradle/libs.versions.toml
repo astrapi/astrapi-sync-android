@@ -16,6 +16,7 @@ securityCrypto = "1.1.0"
 camerax = "1.4.2"
 mlkitBarcodeScanning = "17.3.0"
 workManager = "2.11.0"
+unifiedpush = "3.3.3"
 
 [libraries]
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -44,6 +45,7 @@ camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", versi
 camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
 mlkit-barcode-scanning = { group = "com.google.mlkit", name = "barcode-scanning", version.ref = "mlkitBarcodeScanning" }
 work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }
+unifiedpush-connector = { group = "org.unifiedpush.android", name = "connector", version.ref = "unifiedpush" }
 junit = { group = "junit", name = "junit", version = "4.13.2" }
 
 [plugins]

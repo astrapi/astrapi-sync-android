@@ -98,3 +98,11 @@ data class SyncSummary(
     @SerialName("deleted_remote") val deletedRemote: Int = 0,
     val conflicts: Int = 0,
 )
+
+/** Meldet die UnifiedPush-Endpoint-URL dieses Geräts an den Server, siehe
+ * astrapi_sync/api/sync.py::register_push_endpoint(). Leerer String
+ * deregistriert. */
+@Serializable
+data class PushRegistration(
+    @SerialName("endpoint_url") val endpointUrl: String,
+)

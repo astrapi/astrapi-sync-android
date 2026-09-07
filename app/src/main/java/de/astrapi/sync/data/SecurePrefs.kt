@@ -40,6 +40,13 @@ class SecurePrefs(context: Context) {
         get() = prefs.getString(KEY_DEVICE_LABEL, "") ?: ""
         set(value) = prefs.edit().putString(KEY_DEVICE_LABEL, value).apply()
 
+    /** Geräteindividuelle UnifiedPush-Endpoint-URL -- faktisch ein
+     * Capability-Token (wer sie kennt, kann Weckrufe an dieses Gerät
+     * auslösen), deshalb hier und nicht in AppPreferences. */
+    var unifiedPushEndpoint: String
+        get() = prefs.getString(KEY_UNIFIEDPUSH_ENDPOINT, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_UNIFIEDPUSH_ENDPOINT, value).apply()
+
     val isPaired: Boolean get() = deviceToken.isNotBlank()
 
     fun clear() = prefs.edit().clear().apply()
@@ -49,5 +56,6 @@ class SecurePrefs(context: Context) {
         const val KEY_DEVICE_TOKEN = "device_token"
         const val KEY_DEVICE_ID = "device_id"
         const val KEY_DEVICE_LABEL = "device_label"
+        const val KEY_UNIFIEDPUSH_ENDPOINT = "unifiedpush_endpoint"
     }
 }

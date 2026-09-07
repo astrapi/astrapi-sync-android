@@ -3,7 +3,9 @@ package de.astrapi.sync
 import android.app.Application
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import de.astrapi.sync.data.AppDatabase
@@ -62,7 +64,31 @@ class SyncApp : Application() {
         )
     }
 
+    /** Einmaliger Sofort-Sync, ausgelöst von einem UnifiedPush-Weckruf
+     * (siehe PushReceiverService). Eigener Work-Name (nicht SYNC_WORK_NAME),
+     * damit sich periodischer und push-getriggerter Sync nicht gegenseitig
+     * blockieren/canceln. KEEP statt REPLACE: mehrere kurz aufeinander-
+     * folgende Pushes sollen keinen zweiten parallelen Lauf anstoßen --
+     * SyncWorker liest ohnehin bei jedem Lauf alle Bindings frisch aus der
+     * DB, ein bereits eingereihter Lauf deckt das schon ab. */
+    fun triggerImmediateSync() {
+        val request = OneTimeWorkRequestBuilder<SyncWorker>()
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .setRequiresBatteryNotLow(true)
+                    .build(),
+            )
+            .build()
+        WorkManager.getInstance(this).enqueueUniqueWork(
+            IMMEDIATE_SYNC_WORK_NAME,
+            ExistingWorkPolicy.KEEP,
+            request,
+        )
+    }
+
     private companion object {
         const val SYNC_WORK_NAME = "periodic_folder_sync"
+        const val IMMEDIATE_SYNC_WORK_NAME = "immediate_folder_sync"
     }
 }

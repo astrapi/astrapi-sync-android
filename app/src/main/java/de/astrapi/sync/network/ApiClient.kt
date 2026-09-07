@@ -169,4 +169,14 @@ class ApiClient(serverUrl: String, private val deviceToken: String) {
         val req = authedRequest(folderUrl("folders", folderId, "sync-log")).post(body).build()
         execute(req).use { resp -> bodyOrThrow(resp) }
     }
+
+    /** Meldet (oder löscht mit leerem String) die UnifiedPush-Endpoint-URL
+     * dieses Geräts -- siehe sync.py::register_push_endpoint(). Kein
+     * folder_id im Pfad nötig, deshalb folderUrl() trotz des Namens ohne
+     * weitere Segmente außer dem Endpunkt selbst. */
+    suspend fun registerPushEndpoint(endpointUrl: String) = withContext(Dispatchers.IO) {
+        val body = json.encodeToString(PushRegistration(endpointUrl)).toRequestBody(JSON_MEDIA)
+        val req = authedRequest(folderUrl("push-endpoint")).post(body).build()
+        execute(req).use { resp -> bodyOrThrow(resp) }
+    }
 }
