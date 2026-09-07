@@ -13,12 +13,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CreateNewFolder
@@ -26,6 +29,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -41,6 +45,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -172,6 +177,61 @@ fun FolderListScreen(onOpenSettings: () -> Unit, viewModel: FolderListViewModel 
             }
         }
     }
+
+    state.pendingDeleteConfirmation?.let { pending ->
+        DeleteConfirmationDialog(
+            pending = pending,
+            onConfirm = viewModel::confirmPendingDeletions,
+            onDismiss = viewModel::dismissPendingDeletions,
+        )
+    }
+}
+
+/** Zeigt, welche Pfade der zuvor abgebrochene Lauf gelöscht hätte (siehe
+ * SyncEngine.MAX_AUTO_DELETE / T-203-SYNC) -- ohne diese Liste sah der
+ * Nutzer bisher nur die Gesamtzahl im statusText ("Abgebrochen: 10
+ * Löschungen ..."), ohne zu wissen welche Dateien betroffen sind oder wie
+ * er den Sync fortsetzen kann. */
+@Composable
+private fun DeleteConfirmationDialog(
+    pending: PendingDeleteConfirmation,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val total = pending.wouldDeleteLocal.size + pending.wouldDeleteRemote.size
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Löschungen bestätigen") },
+        text = {
+            Column {
+                Text(
+                    "Dieser Sync würde $total Datei(en) löschen -- mehr als die " +
+                        "Sicherheitsgrenze erlaubt. Das kann auch bedeuten, dass der Server " +
+                        "gerade nur vorübergehend nichts liefert. Vor dem Fortfahren prüfen:",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(modifier = Modifier.padding(top = 12.dp))
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 240.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    pending.wouldDeleteLocal.forEach { path ->
+                        Text("Lokal: $path", style = MaterialTheme.typography.bodySmall)
+                    }
+                    pending.wouldDeleteRemote.forEach { path ->
+                        Text("Server: $path", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text("Trotzdem löschen") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Abbrechen") }
+        },
+    )
 }
 
 @Composable
@@ -252,9 +312,17 @@ private fun rememberFriendlyFolderName(context: Context, uri: android.net.Uri): 
 private fun FolderRow(item: FolderUiItem, onSyncNow: () -> Unit) {
     val context = LocalContext.current
     val folderName = rememberFriendlyFolderName(context, item.boundUri)
+    // "Noch nie synchronisiert" nur zeigen, wenn wirklich noch kein Lauf
+    // stattfand -- lastSyncedAt bleibt bewusst null, wenn ein Lauf ohne
+    // echte Änderung endet (T-265-SYNC, Server-Zeitstempel-Parität).
+    // Ohne diese Ausnahme stünde nach so einem folgenlosen ersten Lauf
+    // "Noch nie synchronisiert" direkt neben "Bereits aktuell" im
+    // statusText darunter -- ein Widerspruch, den der Nutzer als Bug
+    // gemeldet hat. item.statusText belegt, dass in dieser Session
+    // bereits ein Lauf abgeschlossen wurde.
     val lastSyncedText = item.lastSyncedAt?.let {
         DateUtils.getRelativeTimeSpanString(it, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()
-    } ?: "Noch nie synchronisiert"
+    } ?: if (item.statusText == null) "Noch nie synchronisiert" else null
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
@@ -285,22 +353,24 @@ private fun FolderRow(item: FolderUiItem, onSyncNow: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(top = 6.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.History,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.tertiary,
-                            modifier = Modifier.size(14.dp),
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            lastSyncedText,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.tertiary,
-                        )
+                    if (lastSyncedText != null) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(top = 6.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.History,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.tertiary,
+                                modifier = Modifier.size(14.dp),
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                lastSyncedText,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.tertiary,
+                            )
+                        }
                     }
                     if (item.statusText != null) {
                         Text(

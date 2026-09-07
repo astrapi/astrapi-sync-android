@@ -26,6 +26,16 @@ data class FolderUiItem(
     val isSyncing: Boolean = false,
 )
 
+/** Von der Engine abgebrochener Lauf (MAX_AUTO_DELETE überschritten, siehe
+ * SyncEngine.MAX_AUTO_DELETE / T-203-SYNC) -- hält die betroffenen Pfade,
+ * damit der Dialog sie anzeigen kann, statt nur die Gesamtzahl im
+ * statusText. */
+data class PendingDeleteConfirmation(
+    val folderId: String,
+    val wouldDeleteLocal: List<String>,
+    val wouldDeleteRemote: List<String>,
+)
+
 data class FolderListUiState(
     val isLoading: Boolean = true,
     val errorMessage: String? = null,
@@ -34,6 +44,7 @@ data class FolderListUiState(
     val isLoadingAvailable: Boolean = false,
     val availableFolders: List<FolderInfo> = emptyList(),
     val addErrorMessage: String? = null,
+    val pendingDeleteConfirmation: PendingDeleteConfirmation? = null,
 )
 
 class FolderListViewModel(application: Application) : AndroidViewModel(application) {
@@ -140,14 +151,29 @@ class FolderListViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    fun syncNow(folderId: String) {
+    fun syncNow(folderId: String) = runSync(folderId, confirmDeletes = false)
+
+    /** Nutzer hat im Dialog "Trotzdem löschen" bestätigt -- Lauf mit
+     * denselben Pfaden wiederholen, diesmal mit confirmDeletes=true, damit
+     * die Engine die zuvor geplanten Löschungen tatsächlich ausführt. */
+    fun confirmPendingDeletions() {
+        val pending = _uiState.value.pendingDeleteConfirmation ?: return
+        _uiState.value = _uiState.value.copy(pendingDeleteConfirmation = null)
+        runSync(pending.folderId, confirmDeletes = true)
+    }
+
+    fun dismissPendingDeletions() {
+        _uiState.value = _uiState.value.copy(pendingDeleteConfirmation = null)
+    }
+
+    private fun runSync(folderId: String, confirmDeletes: Boolean) {
         val item = _uiState.value.folders.find { it.folderId == folderId } ?: return
         updateItem(folderId) { it.copy(isSyncing = true, statusText = null) }
         viewModelScope.launch {
             try {
                 val engine = SyncEngine(app, app.apiClient(), dao)
                 val label = app.securePrefs.deviceLabel.ifBlank { "android" }
-                val result = engine.syncFolderOnce(folderId, item.boundUri, label)
+                val result = engine.syncFolderOnce(folderId, item.boundUri, label, confirmDeletes = confirmDeletes)
                 val total = result.uploaded.size + result.downloaded.size +
                     result.deletedLocal.size + result.deletedRemote.size
                 val text = when {
@@ -173,6 +199,13 @@ class FolderListViewModel(application: Application) : AndroidViewModel(applicati
                         lastSyncedAt = now ?: it.lastSyncedAt,
                     )
                 }
+                _uiState.value = _uiState.value.copy(
+                    pendingDeleteConfirmation = if (result.aborted) {
+                        PendingDeleteConfirmation(folderId, result.wouldDeleteLocal, result.wouldDeleteRemote)
+                    } else {
+                        null
+                    },
+                )
             } catch (e: Exception) {
                 updateItem(folderId) { it.copy(isSyncing = false, statusText = "Fehler: ${e.message}") }
             }
