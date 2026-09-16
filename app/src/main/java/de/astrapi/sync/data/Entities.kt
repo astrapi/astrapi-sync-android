@@ -42,4 +42,9 @@ data class FolderBindingEntity(
      * der nur session-lokale statusText in FolderUiItem), damit die
      * Karte auch nach App-Neustart zeigt, wie aktuell ein Ordner ist. */
     val lastSyncedAt: Long? = null,
+    /** Farbkategorie wird beim Verbinden aus FolderInfo übernommen und
+     * nicht mehr live nachgeladen -- wie description ändert sie sich also
+     * erst wieder beim nächsten Verbinden desselben Ordners, falls sie sich
+     * serverseitig ändert (gleiche, bereits bestehende Einschränkung). */
+    val color: String? = null,
 )

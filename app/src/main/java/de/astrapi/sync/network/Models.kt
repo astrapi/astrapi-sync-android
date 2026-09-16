@@ -45,6 +45,7 @@ data class PairResult(
 data class FolderInfo(
     val id: String,
     val description: String,
+    val color: String? = null,
 )
 
 @Serializable

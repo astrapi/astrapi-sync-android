@@ -24,6 +24,7 @@ data class FolderUiItem(
      * persistiert -- verschwindet bewusst wieder nach App-Neustart. */
     val statusText: String? = null,
     val isSyncing: Boolean = false,
+    val color: String? = null,
 )
 
 /** Von der Engine abgebrochener Lauf (MAX_AUTO_DELETE überschritten, siehe
@@ -89,6 +90,7 @@ class FolderListViewModel(application: Application) : AndroidViewModel(applicati
                                 lastSyncedAt = b.lastSyncedAt,
                                 statusText = existing?.statusText,
                                 isSyncing = existing?.isSyncing ?: false,
+                                color = b.color,
                             )
                         },
                     )
@@ -142,9 +144,16 @@ class FolderListViewModel(application: Application) : AndroidViewModel(applicati
      * ContentResolver.takePersistableUriPermission() gesichert haben,
      * bevor diese Funktion aufgerufen wird -- sonst überlebt die
      * Berechtigung keinen App-/Geräte-Neustart. */
-    fun bindFolder(folderId: String, description: String, treeUri: Uri) {
+    fun bindFolder(folder: FolderInfo, treeUri: Uri) {
         viewModelScope.launch {
-            dao.upsertBinding(FolderBindingEntity(folderId, treeUri.toString(), description))
+            dao.upsertBinding(
+                FolderBindingEntity(
+                    folderId = folder.id,
+                    treeUri = treeUri.toString(),
+                    description = folder.description,
+                    color = folder.color,
+                ),
+            )
             // Kein manuelles Neuladen nötig -- observeBound() bekommt den
             // neuen Ordner automatisch über den Flow mit.
             _uiState.value = _uiState.value.copy(showAddSheet = false, availableFolders = emptyList())

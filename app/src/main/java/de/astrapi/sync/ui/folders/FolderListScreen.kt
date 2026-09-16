@@ -2,6 +2,7 @@ package de.astrapi.sync.ui.folders
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color as AndroidColor
 import android.text.format.DateUtils
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -57,6 +58,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.documentfile.provider.DocumentFile
@@ -83,7 +85,7 @@ fun FolderListScreen(onOpenSettings: () -> Unit, viewModel: FolderListViewModel 
                 uri,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
             )
-            viewModel.bindFolder(folder.id, folder.description, uri)
+            viewModel.bindFolder(folder, uri)
         }
         pendingFolder = null
     }
@@ -185,6 +187,23 @@ fun FolderListScreen(onOpenSettings: () -> Unit, viewModel: FolderListViewModel 
             onDismiss = viewModel::dismissPendingDeletions,
         )
     }
+}
+
+/** Reiner Kategorie-Farbpunkt statt der früheren Gruppen-Trennzeilen (siehe
+ * T-317-SYNC) -- fehlertolerant bei kaputtem Hex-String, analog zur
+ * gleichnamigen Server-Semantik (nur Anzeige, keine Gruppierung/Sortierung
+ * mehr). */
+private fun String?.toComposeColorOrNull(): Color? =
+    this?.let { runCatching { Color(AndroidColor.parseColor(it)) }.getOrNull() }
+
+@Composable
+private fun ColorDot(color: Color) {
+    Box(
+        modifier = Modifier
+            .size(8.dp)
+            .clip(CircleShape)
+            .background(color),
+    )
 }
 
 /** Zeigt, welche Pfade der zuvor abgebrochene Lauf gelöscht hätte (siehe
@@ -290,6 +309,7 @@ private fun AvailableFolderRow(folder: FolderInfo, onClick: () -> Unit) {
             Icon(Icons.Default.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             Spacer(modifier = Modifier.width(12.dp))
             Text(folder.description, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            folder.color.toComposeColorOrNull()?.let { ColorDot(it) }
         }
     }
 }
@@ -347,7 +367,13 @@ private fun FolderRow(item: FolderUiItem, onSyncNow: () -> Unit) {
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(item.description, style = MaterialTheme.typography.titleMedium)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(item.description, style = MaterialTheme.typography.titleMedium)
+                        item.color.toComposeColorOrNull()?.let { dotColor ->
+                            Spacer(modifier = Modifier.width(6.dp))
+                            ColorDot(dotColor)
+                        }
+                    }
                     Text(
                         folderName,
                         style = MaterialTheme.typography.bodySmall,
