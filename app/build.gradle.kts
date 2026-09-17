@@ -31,8 +31,8 @@ android {
         applicationId = "de.astrapi.sync"
         minSdk = 26
         targetSdk = 37
-        versionCode = 6
-        versionName = "0.3.2"
+        versionCode = 11
+        versionName = "0.5.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

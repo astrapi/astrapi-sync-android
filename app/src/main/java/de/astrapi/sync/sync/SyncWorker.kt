@@ -34,21 +34,29 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val label = app.securePrefs.deviceLabel.ifBlank { "android" }
 
         var anyFailure = false
+        var anyNewConflicts = false
         for (binding in bindings) {
             try {
                 val result = engine.syncFolderOnce(binding.folderId, Uri.parse(binding.treeUri), label)
-                val total = result.uploaded.size + result.downloaded.size +
-                    result.deletedLocal.size + result.deletedRemote.size
-                // Nur bei echter Änderung aktualisieren -- muss zur
-                // Server-Definition von "Letzter Lauf" passen (Activity
-                // Log bekommt bei total == 0 bewusst keinen Eintrag,
-                // sync.py::log_sync_summary(), T-212-SYNC).
-                if (!result.aborted && total > 0) {
+                // lastSyncedAt heisst "letzter erfolgreicher Lauf" (siehe
+                // Entities.kt-Doc) -- auch bei "Bereits aktuell" (kein
+                // Transfer nötig) aktualisieren, sonst zeigt die App nach
+                // Neustart fälschlich "Noch nie synchronisiert" für einen
+                // Ordner, der gerade erst erfolgreich geprüft wurde.
+                if (!result.aborted) {
                     dao.updateLastSyncedAt(binding.folderId, System.currentTimeMillis())
                 }
+                if (result.newConflicts.isNotEmpty()) anyNewConflicts = true
             } catch (_: Exception) {
                 anyFailure = true
             }
+        }
+        // Erst NACH dem Durchlauf aller Ordner und mit der Gesamtzahl aus
+        // der DB benachrichtigen -- sonst würde bei mehreren betroffenen
+        // Ordnern in einem Lauf mehrfach (mit jeweils veraltetem Stand)
+        // benachrichtigt (siehe ConflictNotifications-Doc-Kommentar).
+        if (anyNewConflicts) {
+            ConflictNotifications.notifyNewConflicts(app, dao.pendingConflictCount())
         }
         return if (anyFailure) Result.retry() else Result.success()
     }

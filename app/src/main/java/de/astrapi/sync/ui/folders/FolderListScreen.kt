@@ -30,7 +30,10 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -67,8 +70,14 @@ import de.astrapi.sync.network.FolderInfo
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FolderListScreen(onOpenSettings: () -> Unit, viewModel: FolderListViewModel = viewModel()) {
+fun FolderListScreen(
+    onOpenSettings: () -> Unit,
+    onOpenConflicts: () -> Unit,
+    onOpenHistory: () -> Unit,
+    viewModel: FolderListViewModel = viewModel(),
+) {
     val state by viewModel.uiState.collectAsState()
+    val conflictCount by viewModel.conflictCount.collectAsState()
     val context = LocalContext.current
 
     // Welcher (noch nicht verbundene) Server-Ordner gerade per SAF-Picker
@@ -100,6 +109,20 @@ fun FolderListScreen(onOpenSettings: () -> Unit, viewModel: FolderListViewModel 
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
                 actions = {
+                    if (conflictCount > 0) {
+                        IconButton(onClick = onOpenConflicts) {
+                            BadgedBox(badge = { Badge { Text("$conflictCount") } }) {
+                                Icon(
+                                    Icons.Default.WarningAmber,
+                                    contentDescription = "$conflictCount Konflikt(e)",
+                                    tint = MaterialTheme.colorScheme.error,
+                                )
+                            }
+                        }
+                    }
+                    IconButton(onClick = onOpenHistory) {
+                        Icon(Icons.Default.History, contentDescription = "Verlauf")
+                    }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Einstellungen")
                     }
@@ -332,14 +355,13 @@ private fun rememberFriendlyFolderName(context: Context, uri: android.net.Uri): 
 private fun FolderRow(item: FolderUiItem, onSyncNow: () -> Unit) {
     val context = LocalContext.current
     val folderName = rememberFriendlyFolderName(context, item.boundUri)
-    // "Noch nie synchronisiert" nur zeigen, wenn wirklich noch kein Lauf
-    // stattfand -- lastSyncedAt bleibt bewusst null, wenn ein Lauf ohne
-    // echte Änderung endet (T-265-SYNC, Server-Zeitstempel-Parität).
-    // Ohne diese Ausnahme stünde nach so einem folgenlosen ersten Lauf
-    // "Noch nie synchronisiert" direkt neben "Bereits aktuell" im
-    // statusText darunter -- ein Widerspruch, den der Nutzer als Bug
-    // gemeldet hat. item.statusText belegt, dass in dieser Session
-    // bereits ein Lauf abgeschlossen wurde.
+    // "Noch nie synchronisiert" nur zeigen, wenn wirklich noch kein
+    // erfolgreicher Lauf stattfand. lastSyncedAt wird inzwischen bei jedem
+    // nicht abgebrochenen Lauf gesetzt (auch bei "Bereits aktuell", siehe
+    // FolderListViewModel.runSync/SyncWorker.doWork) -- der statusText-
+    // Fallback greift daher nur noch im Sonderfall eines abgebrochenen
+    // allerersten Laufs (MAX_AUTO_DELETE-Bestätigungsdialog), wo weder ein
+    // Zeitstempel noch "Noch nie synchronisiert" sinnvoll wären.
     val lastSyncedText = item.lastSyncedAt?.let {
         DateUtils.getRelativeTimeSpanString(it, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()
     } ?: if (item.statusText == null) "Noch nie synchronisiert" else null

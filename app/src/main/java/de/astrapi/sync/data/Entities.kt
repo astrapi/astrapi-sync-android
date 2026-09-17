@@ -48,3 +48,22 @@ data class FolderBindingEntity(
      * serverseitig ändert (gleiche, bereits bestehende Einschränkung). */
     val color: String? = null,
 )
+
+/** Ein von der Engine erkannter, noch nicht aufgelöster Konflikt (beide
+ * Seiten seit dem letzten bekannten Stand geändert, siehe
+ * SyncDecision.FileAction.Conflict). Anders als bisher wird der Konflikt
+ * NICHT mehr automatisch aufgelöst (Server gewinnt, lokale Version als
+ * .syncconflict-Kopie) -- die Datei bleibt unangetastet, bis der Nutzer in
+ * der Konflikt-Liste explizit "meine Version" oder "Server-Version" wählt
+ * (SyncEngine.resolveConflict()). Muss daher, anders als known_files,
+ * über einen App-Neustart und mehrere Sync-Läufe hinweg bestehen bleiben. */
+@Entity(tableName = "pending_conflicts", primaryKeys = ["folderId", "path"])
+data class PendingConflictEntity(
+    val folderId: String,
+    val path: String,
+    val localSha256: String,
+    val localSize: Long,
+    val remoteSha256: String,
+    val remoteSize: Long,
+    val detectedAt: Long,
+)

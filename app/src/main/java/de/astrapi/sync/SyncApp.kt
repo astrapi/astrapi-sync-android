@@ -12,6 +12,7 @@ import de.astrapi.sync.data.AppDatabase
 import de.astrapi.sync.data.AppPreferences
 import de.astrapi.sync.data.SecurePrefs
 import de.astrapi.sync.network.ApiClient
+import de.astrapi.sync.sync.ConflictNotifications
 import de.astrapi.sync.sync.SyncWorker
 import java.util.concurrent.TimeUnit
 
@@ -26,6 +27,10 @@ class SyncApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // Erneutes Erstellen bei jedem App-Start ist folgenlos --
+        // createNotificationChannel() mit gleicher ID aktualisiert
+        // höchstens Name/Wichtigkeit, legt nie doppelt an.
+        ConflictNotifications.createChannel(this)
         // Sicherheitsnetz für den Fall, dass die WorkManager-eigene
         // Neuplanung nach einem Reboot mal nicht greift -- KEEP macht
         // wiederholtes Aufrufen (jeder App-Start) folgenlos, solange

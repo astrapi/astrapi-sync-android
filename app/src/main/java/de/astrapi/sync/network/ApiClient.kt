@@ -170,6 +170,20 @@ class ApiClient(serverUrl: String, private val deviceToken: String) {
         execute(req).use { resp -> bodyOrThrow(resp) }
     }
 
+    /** Datei-genauer Verlauf für einen Ordner (T-338-SYNC), siehe
+     * astrapi_sync/api/sync.py::get_sync_history() -- server-seitig bereits
+     * neueste zuerst. */
+    suspend fun getHistory(folderId: String, limit: Int = 100): List<SyncHistoryEntry> =
+        withContext(Dispatchers.IO) {
+            val url = folderUrl("folders", folderId, "history").newBuilder()
+                .addQueryParameter("limit", limit.toString())
+                .build()
+            val req = authedRequest(url).get().build()
+            execute(req).use { resp ->
+                json.decodeFromString(SyncHistoryResponse.serializer(), bodyOrThrow(resp)).entries
+            }
+        }
+
     /** Meldet (oder löscht mit leerem String) die UnifiedPush-Endpoint-URL
      * dieses Geräts -- siehe sync.py::register_push_endpoint(). Kein
      * folder_id im Pfad nötig, deshalb folderUrl() trotz des Namens ohne

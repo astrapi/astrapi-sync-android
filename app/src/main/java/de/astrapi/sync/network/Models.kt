@@ -98,6 +98,30 @@ data class SyncSummary(
     @SerialName("deleted_local") val deletedLocal: Int = 0,
     @SerialName("deleted_remote") val deletedRemote: Int = 0,
     val conflicts: Int = 0,
+    // Datei-genaue Ergänzung zu den obigen Zählern (T-338-SYNC) -- der
+    // Server legt daraus je eine Verlaufszeile pro Pfad an, siehe
+    // astrapi_sync/modules/folders/history.py.
+    @SerialName("uploaded_paths") val uploadedPaths: List<String> = emptyList(),
+    @SerialName("downloaded_paths") val downloadedPaths: List<String> = emptyList(),
+    @SerialName("deleted_local_paths") val deletedLocalPaths: List<String> = emptyList(),
+    @SerialName("deleted_remote_paths") val deletedRemotePaths: List<String> = emptyList(),
+    @SerialName("conflict_paths") val conflictPaths: List<String> = emptyList(),
+)
+
+/** Eine Zeile aus astrapi_sync/modules/folders/history.py::list_history() --
+ * device_label statt Herkunfts-Gerät-ID, da die App den fremden Gerätenamen
+ * ohnehin nur zur Anzeige braucht (kein Zugriff auf devices-CRUD). */
+@Serializable
+data class SyncHistoryEntry(
+    val path: String,
+    val action: String,
+    @SerialName("device_label") val deviceLabel: String,
+    @SerialName("synced_at") val syncedAt: String,
+)
+
+@Serializable
+data class SyncHistoryResponse(
+    val entries: List<SyncHistoryEntry>,
 )
 
 /** Meldet die UnifiedPush-Endpoint-URL dieses Geräts an den Server, siehe

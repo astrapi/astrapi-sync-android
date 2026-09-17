@@ -8,8 +8,13 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [KnownFileEntity::class, KnownDirEntity::class, FolderBindingEntity::class],
-    version = 4,
+    entities = [
+        KnownFileEntity::class,
+        KnownDirEntity::class,
+        FolderBindingEntity::class,
+        PendingConflictEntity::class,
+    ],
+    version = 5,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -58,6 +63,22 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Neue Tabelle für nutzergesteuerte Konfliktauflösung -- die
+         * Engine legt bei einem erkannten Konflikt hier eine Zeile an,
+         * statt ihn wie bisher sofort automatisch aufzulösen (siehe
+         * Entities.kt-Doc-Kommentar). */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE pending_conflicts (" +
+                        "`folderId` TEXT NOT NULL, `path` TEXT NOT NULL, " +
+                        "`localSha256` TEXT NOT NULL, `localSize` INTEGER NOT NULL, " +
+                        "`remoteSha256` TEXT NOT NULL, `remoteSize` INTEGER NOT NULL, " +
+                        "`detectedAt` INTEGER NOT NULL, PRIMARY KEY(`folderId`, `path`))",
+                )
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -65,7 +86,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "astrapi-sync.db",
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     // Nur fuer den Fall eines manuellen Downgrades (aeltere
                     // APK ueber neuere installiert) -- dafuer gibt es keine
                     // sinnvolle Migration, aber Vorwaertsupdates duerfen nie

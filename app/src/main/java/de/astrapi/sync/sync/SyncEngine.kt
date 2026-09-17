@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import de.astrapi.sync.data.KnownDirEntity
 import de.astrapi.sync.data.KnownFileEntity
+import de.astrapi.sync.data.PendingConflictEntity
 import de.astrapi.sync.data.SyncStateDao
 import de.astrapi.sync.network.ApiClient
 import de.astrapi.sync.network.ConflictException
@@ -15,19 +16,24 @@ import de.astrapi.sync.network.UploadResult
 
 /** Kotlin-Port von astrapi_sync_cli/engine.py::sync_folder_once() --
  * Drei-Wege-Vergleich (lokal / Server / letzter bekannter Stand aus
- * SyncStateDao). Übernimmt bewusst zwei Korrekturen gegenüber dem
- * Python-Original, die dort erst nachträglich als Lücken gefunden
- * wurden (siehe astrapi-hub-Vault, projects/sync/):
+ * SyncStateDao). Übernimmt bewusst eine Korrektur gegenüber dem
+ * Python-Original, die dort erst nachträglich als Lücke gefunden wurde
+ * (siehe astrapi-hub-Vault, projects/sync/):
  *
  * - T-215-SYNC: existiert eine Datei beim allerersten Sync (kein
  *   bekannter Stand) bereits mit UNTERSCHIEDLICHEM Inhalt auf beiden
- *   Seiten, wird das hier als Konflikt behandelt (Sicherungskopie +
- *   Server-Version übernehmen) statt die lokale Version stillschweigend
- *   gewinnen zu lassen.
- * - T-222-SYNC: löscht der Server eine Datei zwischen einem
- *   Upload-Konflikt und dem Nachschlage-Versuch, wird der veraltete
- *   bekannte Zustand für diesen Pfad verworfen statt stehen zu bleiben.
- */
+ *   Seiten, wird das hier als Konflikt behandelt statt die lokale
+ *   Version stillschweigend gewinnen zu lassen.
+ *
+ * Anders als der Python-Client (der einen echten Konflikt automatisch
+ * auflöst: Sicherungskopie + Server-Version übernehmen) pausiert diese
+ * Engine den Sync für die betroffene Datei -- weder lokale noch
+ * Server-Version werden angefasst, stattdessen landet eine Zeile in
+ * pending_conflicts (siehe PendingConflictEntity), bis der Nutzer in der
+ * Konflikt-Liste explizit "meine Version" oder "Server-Version" wählt
+ * (resolveConflict()). Nutzerentscheidung 2026-09-17, astrapi-hub-Vault:
+ * automatische Auflösung war zu intransparent, gerade bei
+ * Hintergrund-Syncs ohne offene App. */
 class SyncEngine(
     private val context: Context,
     private val client: ApiClient,
@@ -51,7 +57,16 @@ class SyncEngine(
         val downloaded: List<String> = emptyList(),
         val deletedLocal: List<String> = emptyList(),
         val deletedRemote: List<String> = emptyList(),
+        /** Alle Pfade, die in DIESEM Lauf als (weiterhin) im Konflikt
+         * erkannt wurden -- unabhängig davon, ob der Konflikt neu ist
+         * oder schon aus einem früheren Lauf in pending_conflicts steht. */
         val conflicts: List<String> = emptyList(),
+        /** Teilmenge von [conflicts]: Pfade, die VOR diesem Lauf noch
+         * nicht in pending_conflicts standen -- Grundlage für
+         * SyncWorker's Benachrichtigung, damit ein einmal erkannter,
+         * weiterhin ungelöster Konflikt nicht bei jedem periodischen Lauf
+         * erneut eine Notification auslöst. */
+        val newConflicts: List<String> = emptyList(),
         val dirsCreatedLocal: List<String> = emptyList(),
         val dirsCreatedRemote: List<String> = emptyList(),
         val dirsDeletedLocal: List<String> = emptyList(),
@@ -91,6 +106,7 @@ class SyncEngine(
         val deletedLocal = mutableListOf<String>()
         val deletedRemote = mutableListOf<String>()
         val conflicts = mutableListOf<String>()
+        val newConflicts = mutableListOf<String>()
 
         val allPaths = (remoteIndex.keys + localFiles.keys + knownFiles.keys).toSortedSet()
         for (relPath in allPaths) {
@@ -131,10 +147,16 @@ class SyncEngine(
                 }
 
                 FileAction.Conflict -> {
-                    SafFileOps.conflictCopy(context, root, relPath, localDoc!!, deviceLabel)
-                    downloadInto(root, folderId, relPath)
-                    knownFiles[relPath] = KnownFileEntity(folderId, relPath, remote!!.sha256, remote.size)
+                    // Bewusst KEIN Zugriff auf lokale/Server-Datei und KEIN
+                    // Update von knownFiles[relPath] -- die Datei bleibt
+                    // unangetastet, bis der Nutzer in der Konflikt-Liste
+                    // entscheidet (siehe Klassen-Doc-Kommentar). Bleibt der
+                    // Eintrag dadurch unverändert, liefert SyncDecision beim
+                    // nächsten Lauf wieder Conflict für denselben Pfad --
+                    // gewollt, damit die Datei so lange "eingefroren" bleibt.
+                    val isNew = recordPendingConflict(folderId, relPath, localHash!!, SafFileOps.size(localDoc!!), remote!!)
                     conflicts.add(relPath)
+                    if (isNew) newConflicts.add(relPath)
                 }
 
                 FileAction.DownloadChanged -> {
@@ -151,19 +173,23 @@ class SyncEngine(
                     } catch (e: ConflictException) {
                         // Wettlauf zwischen Index-Abruf und Upload: Server hat
                         // sich zwischenzeitlich veraendert -> wie einen echten
-                        // Konflikt behandeln.
-                        SafFileOps.conflictCopy(context, root, relPath, localDoc!!, deviceLabel)
+                        // Konflikt behandeln (siehe FileAction.Conflict oben,
+                        // gleiche Begruendung: nichts anfassen, Nutzer
+                        // entscheidet in der Konflikt-Liste).
                         val fresh = client.getIndex(folderId).files.firstOrNull { it.path == relPath }
                         if (fresh != null) {
-                            downloadInto(root, folderId, relPath)
-                            knownFiles[relPath] = KnownFileEntity(folderId, relPath, fresh.sha256, fresh.size)
+                            val freshLocalHash = SafFileOps.hashDocument(context, localDoc!!, BLOCK_SIZE).sha256
+                            val isNew = recordPendingConflict(folderId, relPath, freshLocalHash, SafFileOps.size(localDoc), fresh)
+                            conflicts.add(relPath)
+                            if (isNew) newConflicts.add(relPath)
                         } else {
                             // T-222-SYNC-Fix: Server hat die Datei
                             // zwischenzeitlich geloescht -- veralteten
-                            // known-Eintrag verwerfen statt stehen zu lassen.
+                            // known-Eintrag verwerfen statt stehen zu lassen,
+                            // kein Konflikt mehr (naechster Lauf laedt die
+                            // lokale Version als UploadNew wieder hoch).
                             knownFiles.remove(relPath)
                         }
-                        conflicts.add(relPath)
                     }
                 }
             }
@@ -183,6 +209,7 @@ class SyncEngine(
             deletedLocal = deletedLocal,
             deletedRemote = deletedRemote,
             conflicts = conflicts,
+            newConflicts = newConflicts,
             dirsCreatedLocal = dirResult.createdLocal,
             dirsCreatedRemote = dirResult.createdRemote,
             dirsDeletedLocal = dirResult.deletedLocal,
@@ -190,6 +217,103 @@ class SyncEngine(
         )
         logSummary(folderId, result)
         return result
+    }
+
+    /** Legt eine pending_conflicts-Zeile an oder aktualisiert sie, falls
+     * sich lokaler oder Server-Stand seit dem letzten Lauf nochmal
+     * geändert haben (z.B. Nutzer bearbeitet die Datei weiter, während
+     * der Konflikt schon offen ist). Gibt zurück, ob der Konflikt VORHER
+     * noch nicht bekannt war -- Grundlage für die Benachrichtigung im
+     * SyncWorker, siehe SyncResult.newConflicts. Unverändert gebliebene,
+     * bereits bekannte Konflikte werden nicht neu geschrieben, damit
+     * detectedAt stabil bleibt (Sortierung in der Konflikt-Liste). */
+    private suspend fun recordPendingConflict(
+        folderId: String,
+        relPath: String,
+        localSha256: String,
+        localSize: Long,
+        remote: FileEntry,
+    ): Boolean {
+        val existing = dao.pendingConflict(folderId, relPath)
+        val unchanged = existing != null &&
+            existing.localSha256 == localSha256 &&
+            existing.remoteSha256 == remote.sha256
+        if (!unchanged) {
+            dao.upsertPendingConflict(
+                PendingConflictEntity(
+                    folderId = folderId,
+                    path = relPath,
+                    localSha256 = localSha256,
+                    localSize = localSize,
+                    remoteSha256 = remote.sha256,
+                    remoteSize = remote.size,
+                    detectedAt = System.currentTimeMillis(),
+                ),
+            )
+        }
+        return existing == null
+    }
+
+    /** Löst einen in pending_conflicts stehenden Konflikt gemäß
+     * Nutzerentscheidung auf -- aufgerufen von ConflictsViewModel, nicht
+     * Teil des regulären syncFolderOnce()-Laufs. [keepLocal] = true:
+     * lokale Version gewinnt (überschreibt den Server-Stand); false:
+     * Server-Version gewinnt (lokale Version wird vorher sicherheitshalber
+     * als .syncconflict-Kopie gesichert, siehe Klassen-Doc-Kommentar --
+     * kein stiller Datenverlust, obwohl der Nutzer aktiv "Server" gewählt
+     * hat). Holt den Server-Stand jeweils frisch, da seit dem Erkennen des
+     * Konflikts (ggf. beim letzten Hintergrund-Lauf) weitere Zeit
+     * vergangen sein kann. */
+    suspend fun resolveConflict(folderId: String, rootUri: Uri, deviceLabel: String, relPath: String, keepLocal: Boolean) {
+        val root = SafFileOps.root(context, rootUri)
+        val localDoc = SafFileOps.findFile(root, relPath)
+
+        if (keepLocal) {
+            if (localDoc == null) {
+                // Nutzer hat die lokale Datei zwischenzeitlich selbst
+                // gelöscht -- nichts mehr zu behalten, Konflikt einfach
+                // fallenlassen (naechster Lauf sieht dann wieder die
+                // Server-Version als "nur remote vorhanden").
+                dao.deletePendingConflict(folderId, relPath)
+                return
+            }
+            val freshRemote = client.getIndex(folderId).files.firstOrNull { it.path == relPath }
+            try {
+                val info = uploadFile(folderId, relPath, localDoc, freshRemote?.blocks, freshRemote?.sha256)
+                dao.upsertFiles(listOf(KnownFileEntity(folderId, relPath, info.sha256, SafFileOps.size(localDoc))))
+                dao.deletePendingConflict(folderId, relPath)
+            } catch (e: ConflictException) {
+                // Server hat sich seit freshRemote schon wieder geaendert --
+                // Konflikt bleibt offen, mit aktualisiertem Server-Stand,
+                // statt den Upload-Versuch stillschweigend zu verwerfen.
+                val fresh2 = client.getIndex(folderId).files.firstOrNull { it.path == relPath }
+                if (fresh2 != null) {
+                    recordPendingConflict(
+                        folderId,
+                        relPath,
+                        SafFileOps.hashDocument(context, localDoc, BLOCK_SIZE).sha256,
+                        SafFileOps.size(localDoc),
+                        fresh2,
+                    )
+                }
+                throw e
+            }
+        } else {
+            val freshRemote = client.getIndex(folderId).files.firstOrNull { it.path == relPath }
+            if (freshRemote == null) {
+                // Server hat die Datei zwischenzeitlich geloescht -- keine
+                // Server-Version mehr zu uebernehmen, Konflikt fallenlassen
+                // (naechster Lauf laedt die lokale Version als UploadNew hoch).
+                dao.deletePendingConflict(folderId, relPath)
+                return
+            }
+            if (localDoc != null) {
+                SafFileOps.conflictCopy(context, root, relPath, localDoc, deviceLabel)
+            }
+            downloadInto(root, folderId, relPath)
+            dao.upsertFiles(listOf(KnownFileEntity(folderId, relPath, freshRemote.sha256, freshRemote.size)))
+            dao.deletePendingConflict(folderId, relPath)
+        }
     }
 
     private fun planDeletions(
@@ -332,6 +456,11 @@ class SyncEngine(
                     deletedLocal = result.deletedLocal.size,
                     deletedRemote = result.deletedRemote.size,
                     conflicts = result.conflicts.size,
+                    uploadedPaths = result.uploaded,
+                    downloadedPaths = result.downloaded,
+                    deletedLocalPaths = result.deletedLocal,
+                    deletedRemotePaths = result.deletedRemote,
+                    conflictPaths = result.conflicts,
                 ),
             )
         } catch (_: Exception) {

@@ -32,6 +32,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -66,6 +67,12 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = viewModel(
     // stillschweigend auf 15 Min. angehoben) -- 15 Min. ist deshalb die
     // kleinste hier angebotene, tatsaechlich erreichbare Option.
     val intervalOptions = listOf(15L to "15 Min", 30L to "30 Min", 60L to "1 Std")
+    // versionCode statt getLongVersionCode() -- Letzteres gibt es erst ab API 28,
+    // minSdk dieser App ist aber 26.
+    val versionLabel = remember {
+        val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+        "Version ${packageInfo.versionName} (${packageInfo.versionCode})"
+    }
 
     Scaffold(
         topBar = {
@@ -201,6 +208,13 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = viewModel(
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
+
+            Text("Info", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 28.dp))
+            Text(
+                versionLabel,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.padding(top = 12.dp),
+            )
         }
     }
 }

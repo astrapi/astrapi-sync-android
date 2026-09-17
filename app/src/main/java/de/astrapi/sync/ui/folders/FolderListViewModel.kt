@@ -9,8 +9,10 @@ import de.astrapi.sync.data.FolderBindingEntity
 import de.astrapi.sync.network.FolderInfo
 import de.astrapi.sync.sync.SyncEngine
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class FolderUiItem(
@@ -55,6 +57,13 @@ class FolderListViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _uiState = MutableStateFlow(FolderListUiState())
     val uiState: StateFlow<FolderListUiState> = _uiState
+
+    /** Für das Warn-Badge neben dem Einstellungen-Icon -- eigener,
+     * schlanker Flow statt Teil von uiState, da er unabhängig von der
+     * Ordnerliste selbst aktuell bleiben muss (Konflikte können jederzeit
+     * durch den Hintergrund-Worker dazukommen). */
+    val conflictCount: StateFlow<Int> = dao.pendingConflictCountFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     init {
         observeBound()
@@ -187,19 +196,31 @@ class FolderListViewModel(application: Application) : AndroidViewModel(applicati
                     result.deletedLocal.size + result.deletedRemote.size
                 val text = when {
                     result.aborted -> "Abgebrochen: ${result.reason}"
-                    total == 0 -> "Bereits aktuell"
+                    // Ein Lauf, der NUR einen Konflikt findet und sonst
+                    // nichts überträgt, ist trotzdem kein "bereits
+                    // aktuell" -- der Nutzer muss ihn noch auflösen.
+                    total == 0 && result.conflicts.isEmpty() -> "Bereits aktuell"
+                    total == 0 -> "${result.conflicts.size} Konflikt(e) offen"
                     else -> "${result.uploaded.size} hoch, ${result.downloaded.size} runter, " +
                         "${result.deletedLocal.size + result.deletedRemote.size} gelöscht" +
-                        if (result.conflicts.isNotEmpty()) ", ${result.conflicts.size} Konflikt(e)" else ""
+                        // Anders als früher werden Konflikte nicht mehr
+                        // automatisch aufgelöst -- daher der Hinweis, dass
+                        // eine Entscheidung des Nutzers aussteht (siehe
+                        // Konflikt-Liste hinter dem Warn-Badge).
+                        if (result.conflicts.isNotEmpty()) ", ${result.conflicts.size} Konflikt(e) offen" else ""
                 }
-                // Nur bei echter Änderung aktualisieren -- muss zur
-                // Server-Definition von "Letzter Lauf" passen (Activity
-                // Log bekommt bei total == 0 bewusst keinen Eintrag,
-                // sync.py::log_sync_summary(), T-212-SYNC). Sonst zeigt
-                // die App "vor 0 Minuten synchronisiert", obwohl der
-                // Server für denselben folgenlosen Check gar nichts
-                // vermerkt hat.
-                val now = if (!result.aborted && total > 0) System.currentTimeMillis() else null
+                // lastSyncedAt heisst "letzter erfolgreicher Lauf", nicht
+                // "letzter Lauf mit echter Änderung" (siehe Entities.kt-Doc
+                // zu FolderBindingEntity.lastSyncedAt) -- die Activity-Log-
+                // Definition des Servers (kein Eintrag bei total == 0,
+                // sync.py::log_sync_summary(), T-212-SYNC) betrifft nur den
+                // Verlauf, nicht diese Anzeige. Wurde hier bisher fälschlich
+                // übernommen: ein folgenloser, aber erfolgreicher Check
+                // ("Bereits aktuell") liess lastSyncedAt auf null stehen, was
+                // nach App-Neustart (statusText ist session-lokal und dann
+                // wieder null) fälschlich als "Noch nie synchronisiert"
+                // angezeigt wurde.
+                val now = if (!result.aborted) System.currentTimeMillis() else null
                 if (now != null) dao.updateLastSyncedAt(folderId, now)
                 updateItem(folderId) {
                     it.copy(

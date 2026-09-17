@@ -69,4 +69,31 @@ interface SyncStateDao {
 
     @Query("UPDATE folder_bindings SET lastSyncedAt = :timestamp WHERE folderId = :folderId")
     suspend fun updateLastSyncedAt(folderId: String, timestamp: Long)
+
+    @Query("SELECT * FROM pending_conflicts WHERE folderId = :folderId AND path = :path")
+    suspend fun pendingConflict(folderId: String, path: String): PendingConflictEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertPendingConflict(conflict: PendingConflictEntity)
+
+    @Query("DELETE FROM pending_conflicts WHERE folderId = :folderId AND path = :path")
+    suspend fun deletePendingConflict(folderId: String, path: String)
+
+    /** Für die Konflikt-Liste (ConflictsScreen) -- reaktiv aus demselben
+     * Grund wie allBindingsFlow(): der Hintergrund-Sync kann neue
+     * Konflikte anlegen, während der Bildschirm bereits offen ist. */
+    @Query("SELECT * FROM pending_conflicts ORDER BY detectedAt DESC")
+    fun pendingConflictsFlow(): Flow<List<PendingConflictEntity>>
+
+    /** Für das Badge in der Ordnerliste -- eigener Flow statt Ableitung
+     * aus pendingConflictsFlow(), damit die Liste selbst nicht überall
+     * mitgeladen werden muss, wo nur die Zahl gebraucht wird. */
+    @Query("SELECT COUNT(*) FROM pending_conflicts")
+    fun pendingConflictCountFlow(): Flow<Int>
+
+    /** Einmaliger Snapshot für die Notification-Texterstellung im
+     * SyncWorker -- der läuft nicht auf dem UI-Thread und braucht keinen
+     * dauerhaften Flow-Collector für einen einzelnen Zahlenwert. */
+    @Query("SELECT COUNT(*) FROM pending_conflicts")
+    suspend fun pendingConflictCount(): Int
 }
