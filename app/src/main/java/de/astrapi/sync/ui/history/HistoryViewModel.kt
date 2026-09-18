@@ -10,18 +10,18 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-/** Deutsche Labels, 1:1 zu astrapi_sync/modules/folders/history.py's
- * _ACTION_LABELS -- Server und App zeigen bewusst denselben Wortlaut. */
+/** Deutsche Labels, 1:1 zu astrapi_sync/modules/folders/ui/history_ui.py's
+ * _ACTION_LABELS -- Server und App zeigen denselben Wortlaut. */
 private val ACTION_LABELS = mapOf(
     "uploaded" to "Hochgeladen",
     "downloaded" to "Heruntergeladen",
-    "deleted_local" to "Lokal gelöscht",
-    "deleted_remote" to "Auf Server gelöscht",
+    "deleted_local" to "Gelöscht",
+    "deleted_remote" to "Gelöscht",
     "conflict" to "Konflikt",
-    "dir_created_local" to "Ordner lokal angelegt",
-    "dir_created_remote" to "Ordner auf Server angelegt",
-    "dir_deleted_local" to "Ordner lokal gelöscht",
-    "dir_deleted_remote" to "Ordner auf Server gelöscht",
+    "dir_created_local" to "Ordner angelegt",
+    "dir_created_remote" to "Ordner angelegt",
+    "dir_deleted_local" to "Ordner gelöscht",
+    "dir_deleted_remote" to "Ordner gelöscht",
 )
 
 data class HistoryUiItem(
