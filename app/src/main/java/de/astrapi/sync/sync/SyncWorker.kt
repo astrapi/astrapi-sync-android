@@ -1,7 +1,7 @@
 package de.astrapi.sync.sync
 
 import android.content.Context
-import android.net.Uri
+import java.io.File
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import de.astrapi.sync.SyncApp
@@ -30,14 +30,14 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val bindings = dao.allBindings()
         if (bindings.isEmpty()) return Result.success()
 
-        val engine = SyncEngine(app, app.apiClient(), dao)
+        val engine = SyncEngine(app.apiClient(), dao)
         val label = app.securePrefs.deviceLabel.ifBlank { "android" }
 
         var anyFailure = false
         var anyNewConflicts = false
         for (binding in bindings) {
             try {
-                val result = engine.syncFolderOnce(binding.folderId, Uri.parse(binding.treeUri), label)
+                val result = engine.syncFolderOnce(binding.folderId, File(binding.folderPath), label)
                 // lastSyncedAt heisst "letzter erfolgreicher Lauf" (siehe
                 // Entities.kt-Doc) -- auch bei "Bereits aktuell" (kein
                 // Transfer nötig) aktualisieren, sonst zeigt die App nach

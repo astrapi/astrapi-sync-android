@@ -4,8 +4,8 @@ import de.astrapi.sync.data.KnownFileEntity
 import de.astrapi.sync.network.FileEntry
 
 /** Reine, Android-unabhängige Kernlogik des Drei-Wege-Vergleichs --
- * bewusst von SyncEngine (die DocumentFile/Context/Netzwerk-I/O
- * braucht) getrennt, damit sich genau diese Entscheidungslogik ohne
+ * bewusst von SyncEngine (die Datei-/Netzwerk-I/O braucht) getrennt,
+ * damit sich genau diese Entscheidungslogik ohne
  * Android-Mocking als normaler JVM-Unit-Test prüfen lässt (siehe
  * SyncDecisionTest). Portiert engine.py::sync_folder_once()'s
  * if/elif-Kette 1:1, mit der T-215-SYNC-Korrektur: kein zusätzliches

@@ -22,20 +22,19 @@ data class KnownDirEntity(
     val path: String,
 )
 
-/** Welcher Server-Ordner mit welchem lokalen SAF-Baum verbunden ist --
- * Pendant zu config.py's cfg["folders"] (folder_id -> local_path), nur
- * dass Android statt eines Dateisystem-Pfads eine SAF-Tree-URI
- * speichert (String-Serialisierung von Uri, siehe Uri.toString()/
- * Uri.parse()). Ändert sich die treeUri für einen Ordner, ist der
- * bisherige bekannte Zustand (known_files/known_dirs) für diesen Ordner
- * hinfällig -- exakt dieselbe Sicherheitsüberlegung wie in state.py's
- * load_state()-Docstring beschrieben (sonst könnten zufällig gleich
- * benannte Dateien im neuen Ordner fälschlich als "server-seitig
- * gelöscht" erkannt werden). */
+/** Welcher Server-Ordner mit welchem lokalen Verzeichnis verbunden ist --
+ * Pendant zu config.py's cfg["folders"] (folder_id -> local_path). Seit
+ * T-340-SYNC ein echter absoluter Dateisystem-Pfad statt einer SAF-Tree-
+ * Uri (SafFileOps/DocumentFile entfernt, siehe FileOps). Ändert sich der
+ * folderPath für einen Ordner, ist der bisherige bekannte Zustand
+ * (known_files/known_dirs) für diesen Ordner hinfällig -- exakt dieselbe
+ * Sicherheitsüberlegung wie in state.py's load_state()-Docstring
+ * beschrieben (sonst könnten zufällig gleich benannte Dateien im neuen
+ * Ordner fälschlich als "server-seitig gelöscht" erkannt werden). */
 @Entity(tableName = "folder_bindings")
 data class FolderBindingEntity(
     @PrimaryKey val folderId: String,
-    val treeUri: String,
+    val folderPath: String,
     val description: String,
     /** Epoch-Millis des letzten erfolgreichen syncFolderOnce()-Laufs,
      * null solange noch nie synchronisiert -- persistiert (anders als

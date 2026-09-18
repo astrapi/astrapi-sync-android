@@ -1,11 +1,7 @@
 package de.astrapi.sync.ui.folders
 
-import android.content.Context
-import android.content.Intent
 import android.graphics.Color as AndroidColor
 import android.text.format.DateUtils
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -64,39 +60,42 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.viewmodel.compose.viewModel
 import de.astrapi.sync.network.FolderInfo
+import de.astrapi.sync.sync.AllFilesAccess
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FolderListScreen(
     onOpenSettings: () -> Unit,
     onOpenConflicts: () -> Unit,
-    onOpenHistory: () -> Unit,
+    onOpenHistory: (folderId: String) -> Unit,
     viewModel: FolderListViewModel = viewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
     val conflictCount by viewModel.conflictCount.collectAsState()
     val context = LocalContext.current
 
-    // Welcher (noch nicht verbundene) Server-Ordner gerade per SAF-Picker
-    // verbunden werden soll -- der Picker selbst kennt keinen
-    // "Kontext"-Parameter, daher hier zwischengehalten.
+    // Welcher (noch nicht verbundene) Server-Ordner gerade per
+    // FolderPickerDialog verbunden werden soll -- der Picker selbst kennt
+    // keinen "Kontext"-Parameter, daher hier zwischengehalten.
     var pendingFolder by remember { mutableStateOf<FolderInfo?>(null) }
+    var showFolderPicker by remember { mutableStateOf(false) }
+    // Zeigt den Hinweis-Dialog, falls MANAGE_EXTERNAL_STORAGE noch nicht
+    // erteilt ist -- kann sich nur außerhalb der App ändern (System-
+    // Settings), daher bei jedem Compose-Durchlauf frisch geprüft statt
+    // einmalig gecacht.
+    var showPermissionDialog by remember { mutableStateOf(false) }
 
-    val pickFolderLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree(),
-    ) { uri ->
-        val folder = pendingFolder
-        if (uri != null && folder != null) {
-            context.contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
-            )
-            viewModel.bindFolder(folder, uri)
+    fun startBindingFlow(folder: FolderInfo) {
+        if (AllFilesAccess.isGranted()) {
+            pendingFolder = folder
+            showFolderPicker = true
+        } else {
+            pendingFolder = folder
+            showPermissionDialog = true
         }
-        pendingFolder = null
     }
 
     Scaffold(
@@ -119,9 +118,6 @@ fun FolderListScreen(
                                 )
                             }
                         }
-                    }
-                    IconButton(onClick = onOpenHistory) {
-                        Icon(Icons.Default.History, contentDescription = "Verlauf")
                     }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Einstellungen")
@@ -152,7 +148,11 @@ fun FolderListScreen(
 
                 else -> LazyColumn(modifier = Modifier.padding(top = 8.dp)) {
                     items(state.folders, key = { it.folderId }) { item ->
-                        FolderRow(item = item, onSyncNow = { viewModel.syncNow(item.folderId) })
+                        FolderRow(
+                            item = item,
+                            onSyncNow = { viewModel.syncNow(item.folderId) },
+                            onOpenHistory = { onOpenHistory(item.folderId) },
+                        )
                     }
                 }
             }
@@ -190,10 +190,7 @@ fun FolderListScreen(
                         state.availableFolders.forEach { folder ->
                             AvailableFolderRow(
                                 folder = folder,
-                                onClick = {
-                                    pendingFolder = folder
-                                    pickFolderLauncher.launch(null)
-                                },
+                                onClick = { startBindingFlow(folder) },
                             )
                         }
                         Spacer(modifier = Modifier.padding(bottom = 8.dp))
@@ -210,6 +207,57 @@ fun FolderListScreen(
             onDismiss = viewModel::dismissPendingDeletions,
         )
     }
+
+    if (showPermissionDialog) {
+        AllFilesAccessDialog(
+            onConfirm = {
+                showPermissionDialog = false
+                context.startActivity(AllFilesAccess.settingsIntent(context))
+            },
+            onDismiss = {
+                showPermissionDialog = false
+                pendingFolder = null
+            },
+        )
+    }
+
+    if (showFolderPicker) {
+        FolderPickerDialog(
+            onPicked = { dir ->
+                val folder = pendingFolder
+                showFolderPicker = false
+                pendingFolder = null
+                if (folder != null) viewModel.bindFolder(folder, dir)
+            },
+            onDismiss = {
+                showFolderPicker = false
+                pendingFolder = null
+            },
+        )
+    }
+}
+
+/** Seit T-340-SYNC Voraussetzung fürs Ordner-Binden -- lässt sich anders
+ * als normale Laufzeit-Permissions nicht per Systemdialog gewähren,
+ * sondern nur über einen eigenen Settings-Screen (siehe
+ * AllFilesAccess.settingsIntent()). Erklärt daher zuerst, wohin es geht,
+ * statt den Nutzer unangekündigt in die Systemeinstellungen zu schicken. */
+@Composable
+private fun AllFilesAccessDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Zugriff auf alle Dateien nötig") },
+        text = {
+            Text(
+                "Um einen Ordner zu verbinden, benötigt astrapi sync die Berechtigung " +
+                    "\"Alle Dateien verwalten\" -- damit Änderungen sofort erkannt werden " +
+                    "können (statt nur alle paar Minuten). Auf der folgenden Seite bitte " +
+                    "den Schalter für astrapi sync aktivieren.",
+            )
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Einstellungen öffnen") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Abbrechen") } },
+    )
 }
 
 /** Reiner Kategorie-Farbpunkt statt der früheren Gruppen-Trennzeilen (siehe
@@ -337,24 +385,12 @@ private fun AvailableFolderRow(folder: FolderInfo, onClick: () -> Unit) {
     }
 }
 
-/** Menschenlesbarer Name des SAF-Baums statt der rohen content://-URI --
- * DocumentFile.name macht dafür eine echte ContentResolver-Abfrage,
- * deshalb per remember(uri) nicht bei jeder Recomposition neu geholt.
- * Fällt defensiv zurück, falls der Zugriff zwischenzeitlich entzogen
- * wurde (Nutzer hat die Berechtigung außerhalb der App widerrufen). */
 @Composable
-private fun rememberFriendlyFolderName(context: Context, uri: android.net.Uri): String =
-    remember(uri) {
-        runCatching { DocumentFile.fromTreeUri(context, uri)?.name }
-            .getOrNull()
-            ?: uri.lastPathSegment
-            ?: uri.toString()
-    }
-
-@Composable
-private fun FolderRow(item: FolderUiItem, onSyncNow: () -> Unit) {
-    val context = LocalContext.current
-    val folderName = rememberFriendlyFolderName(context, item.boundUri)
+private fun FolderRow(item: FolderUiItem, onSyncNow: () -> Unit, onOpenHistory: () -> Unit) {
+    // Seit T-340-SYNC ein echter Dateisystem-Pfad statt einer SAF-Tree-Uri
+    // -- der Anzeigename ist damit einfach der letzte Pfadbestandteil,
+    // ohne ContentResolver-Abfrage.
+    val folderName = File(item.boundPath).name
     // "Noch nie synchronisiert" nur zeigen, wenn wirklich noch kein
     // erfolgreicher Lauf stattfand. lastSyncedAt wird inzwischen bei jedem
     // nicht abgebrochenen Lauf gesetzt (auch bei "Bereits aktuell", siehe
@@ -433,7 +469,12 @@ private fun FolderRow(item: FolderUiItem, onSyncNow: () -> Unit) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                 horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
+                IconButton(onClick = onOpenHistory) {
+                    Icon(Icons.Default.History, contentDescription = "Verlauf")
+                }
+                Spacer(modifier = Modifier.width(4.dp))
                 FilledTonalButton(onClick = onSyncNow, enabled = !item.isSyncing) {
                     if (item.isSyncing) {
                         CircularProgressIndicator(modifier = Modifier.size(18.dp).padding(end = 8.dp))

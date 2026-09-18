@@ -8,9 +8,25 @@
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- T-340-SYNC: Rohzugriff auf das Dateisystem statt SAF-Tree-Uris,
+         damit android.os.FileObserver (echtes inotify) zuverlässig
+         feuert, SAF-ContentObserver hat sich auf dem Pixel 10 als
+         unzuverlässig erwiesen (siehe T-339-SYNC). Keine
+         Store-Richtlinien-Hürde, da Auslieferung nur über das
+         F-Droid-Eigenrepo. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <!-- Ab API 33 nötig, sonst bleibt ConflictNotifications stumm,
          siehe MainActivity's Laufzeit-Anfrage beim Start. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- T-340-SYNC-Nachtest: FileWatchService läuft als Foreground-Service,
+         damit FileSystemWatcher unabhängig von MainActivity.onStart()/
+         onStop() weiterläuft, statt (wie zuvor) an die Activity gekoppelt
+         zu sein. Letzteres brach genau dann weg, wenn eine ANDERE App
+         eine Ordneränderung auslöste (Nutzer verlässt astrapi sync dafür
+         fast immer). Typ dataSync, da der Service Dateien zwischen Gerät
+         und Server abgleicht. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
         android:name=".SyncApp"
@@ -41,6 +57,13 @@
                 <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />
             </intent-filter>
         </service>
+
+        <!-- Hält FileSystemWatcher unabhängig von der sichtbaren Activity
+             am Leben, siehe FileWatchService-Doc-Kommentar. -->
+        <service
+            android:name=".sync.FileWatchService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
     </application>
 

@@ -101,8 +101,8 @@ class ApiClient(serverUrl: String, private val deviceToken: String) {
     }
 
     /** Streamt die Server-Antwort in [out] -- Aufrufer verantwortet
-     * Ziel-Handling (bei SAF: über eine temporäre DocumentFile +
-     * atomares renameTo(), siehe SafFileOps). */
+     * Ziel-Handling (über eine temporäre Datei + atomares renameTo(),
+     * siehe FileOps/SyncEngine.downloadInto()). */
     suspend fun download(folderId: String, relPath: String, out: OutputStream) =
         withContext(Dispatchers.IO) {
             val req = authedRequest(folderUrl("folders", folderId, "files", relPath)).get().build()

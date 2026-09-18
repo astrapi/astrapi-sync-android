@@ -29,10 +29,15 @@ android {
 
     defaultConfig {
         applicationId = "de.astrapi.sync"
-        minSdk = 26
+        // T-340-SYNC: von 26 auf 30 angehoben -- MANAGE_EXTERNAL_STORAGE
+        // und Environment.isExternalStorageManager() existieren erst ab
+        // Android 11 (API 30), ebenso wird damit der rekursive
+        // FileObserver(File, Int)-Konstruktor (ab API 29) ohne
+        // Versions-Fallunterscheidung nutzbar.
+        minSdk = 30
         targetSdk = 37
-        versionCode = 11
-        versionName = "0.5.1"
+        versionCode = 18
+        versionName = "0.6.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -96,7 +101,6 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.coroutines.android)
     implementation(libs.serialization.json)
-    implementation(libs.documentfile)
     implementation(libs.security.crypto)
 
     implementation(libs.camera.core)

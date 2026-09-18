@@ -1,8 +1,7 @@
 package de.astrapi.sync.sync
 
-import android.content.Context
-import android.net.Uri
-import androidx.documentfile.provider.DocumentFile
+import java.io.File
+import java.io.FileOutputStream
 import de.astrapi.sync.data.KnownDirEntity
 import de.astrapi.sync.data.KnownFileEntity
 import de.astrapi.sync.data.PendingConflictEntity
@@ -35,7 +34,6 @@ import de.astrapi.sync.network.UploadResult
  * automatische Auflösung war zu intransparent, gerade bei
  * Hintergrund-Syncs ohne offene App. */
 class SyncEngine(
-    private val context: Context,
     private val client: ApiClient,
     private val dao: SyncStateDao,
 ) {
@@ -75,17 +73,17 @@ class SyncEngine(
 
     suspend fun syncFolderOnce(
         folderId: String,
-        rootUri: Uri,
+        rootDir: File,
         deviceLabel: String,
         confirmDeletes: Boolean = false,
         maxAutoDelete: Int = MAX_AUTO_DELETE,
     ): SyncResult {
-        val root = SafFileOps.root(context, rootUri)
+        val root = FileOps.root(rootDir.absolutePath)
         val index = client.getIndex(folderId)
         val remoteIndex: Map<String, FileEntry> = index.files.associateBy { it.path }
         val remoteDirs = index.dirs.toSet()
 
-        val localFiles = SafFileOps.listLocalFiles(root)
+        val localFiles = FileOps.listLocalFiles(root)
         val knownFiles = dao.knownFiles(folderId).associateBy { it.path }.toMutableMap()
         val knownDirs = dao.knownDirs(folderId).map { it.path }.toMutableSet()
 
@@ -113,20 +111,20 @@ class SyncEngine(
             val remote = remoteIndex[relPath]
             val localDoc = localFiles[relPath]
             val lastKnown = knownFiles[relPath]
-            val localHash = localDoc?.let { SafFileOps.hashDocument(context, it, BLOCK_SIZE).sha256 }
+            val localHash = localDoc?.let { FileOps.hashDocument(it, BLOCK_SIZE).sha256 }
 
             when (SyncDecision.decide(remote, localDoc != null, localHash, lastKnown)) {
                 FileAction.Forget -> knownFiles.remove(relPath)
 
                 FileAction.DeleteLocal -> {
-                    SafFileOps.deleteFile(localDoc!!)
+                    FileOps.deleteFile(localDoc!!)
                     knownFiles.remove(relPath)
                     deletedLocal.add(relPath)
                 }
 
                 FileAction.UploadNew -> {
                     val info = uploadFile(folderId, relPath, localDoc!!, remoteBlocks = null, expected = null)
-                    knownFiles[relPath] = KnownFileEntity(folderId, relPath, info.sha256, SafFileOps.size(localDoc))
+                    knownFiles[relPath] = KnownFileEntity(folderId, relPath, info.sha256, FileOps.size(localDoc))
                     uploaded.add(relPath)
                 }
 
@@ -143,7 +141,7 @@ class SyncEngine(
                 }
 
                 FileAction.KeepInSync -> {
-                    knownFiles[relPath] = KnownFileEntity(folderId, relPath, localHash!!, SafFileOps.size(localDoc!!))
+                    knownFiles[relPath] = KnownFileEntity(folderId, relPath, localHash!!, FileOps.size(localDoc!!))
                 }
 
                 FileAction.Conflict -> {
@@ -154,7 +152,7 @@ class SyncEngine(
                     // Eintrag dadurch unverändert, liefert SyncDecision beim
                     // nächsten Lauf wieder Conflict für denselben Pfad --
                     // gewollt, damit die Datei so lange "eingefroren" bleibt.
-                    val isNew = recordPendingConflict(folderId, relPath, localHash!!, SafFileOps.size(localDoc!!), remote!!)
+                    val isNew = recordPendingConflict(folderId, relPath, localHash!!, FileOps.size(localDoc!!), remote!!)
                     conflicts.add(relPath)
                     if (isNew) newConflicts.add(relPath)
                 }
@@ -168,7 +166,7 @@ class SyncEngine(
                 FileAction.UploadChanged -> {
                     try {
                         val info = uploadFile(folderId, relPath, localDoc!!, remote!!.blocks, remote.sha256)
-                        knownFiles[relPath] = KnownFileEntity(folderId, relPath, info.sha256, SafFileOps.size(localDoc))
+                        knownFiles[relPath] = KnownFileEntity(folderId, relPath, info.sha256, FileOps.size(localDoc))
                         uploaded.add(relPath)
                     } catch (e: ConflictException) {
                         // Wettlauf zwischen Index-Abruf und Upload: Server hat
@@ -178,8 +176,8 @@ class SyncEngine(
                         // entscheidet in der Konflikt-Liste).
                         val fresh = client.getIndex(folderId).files.firstOrNull { it.path == relPath }
                         if (fresh != null) {
-                            val freshLocalHash = SafFileOps.hashDocument(context, localDoc!!, BLOCK_SIZE).sha256
-                            val isNew = recordPendingConflict(folderId, relPath, freshLocalHash, SafFileOps.size(localDoc), fresh)
+                            val freshLocalHash = FileOps.hashDocument(localDoc!!, BLOCK_SIZE).sha256
+                            val isNew = recordPendingConflict(folderId, relPath, freshLocalHash, FileOps.size(localDoc), fresh)
                             conflicts.add(relPath)
                             if (isNew) newConflicts.add(relPath)
                         } else {
@@ -264,9 +262,9 @@ class SyncEngine(
      * hat). Holt den Server-Stand jeweils frisch, da seit dem Erkennen des
      * Konflikts (ggf. beim letzten Hintergrund-Lauf) weitere Zeit
      * vergangen sein kann. */
-    suspend fun resolveConflict(folderId: String, rootUri: Uri, deviceLabel: String, relPath: String, keepLocal: Boolean) {
-        val root = SafFileOps.root(context, rootUri)
-        val localDoc = SafFileOps.findFile(root, relPath)
+    suspend fun resolveConflict(folderId: String, rootDir: File, deviceLabel: String, relPath: String, keepLocal: Boolean) {
+        val root = FileOps.root(rootDir.absolutePath)
+        val localDoc = FileOps.findFile(root, relPath)
 
         if (keepLocal) {
             if (localDoc == null) {
@@ -280,7 +278,7 @@ class SyncEngine(
             val freshRemote = client.getIndex(folderId).files.firstOrNull { it.path == relPath }
             try {
                 val info = uploadFile(folderId, relPath, localDoc, freshRemote?.blocks, freshRemote?.sha256)
-                dao.upsertFiles(listOf(KnownFileEntity(folderId, relPath, info.sha256, SafFileOps.size(localDoc))))
+                dao.upsertFiles(listOf(KnownFileEntity(folderId, relPath, info.sha256, FileOps.size(localDoc))))
                 dao.deletePendingConflict(folderId, relPath)
             } catch (e: ConflictException) {
                 // Server hat sich seit freshRemote schon wieder geaendert --
@@ -291,8 +289,8 @@ class SyncEngine(
                     recordPendingConflict(
                         folderId,
                         relPath,
-                        SafFileOps.hashDocument(context, localDoc, BLOCK_SIZE).sha256,
-                        SafFileOps.size(localDoc),
+                        FileOps.hashDocument(localDoc, BLOCK_SIZE).sha256,
+                        FileOps.size(localDoc),
                         fresh2,
                     )
                 }
@@ -308,7 +306,7 @@ class SyncEngine(
                 return
             }
             if (localDoc != null) {
-                SafFileOps.conflictCopy(context, root, relPath, localDoc, deviceLabel)
+                FileOps.conflictCopy(root, relPath, localDoc, deviceLabel)
             }
             downloadInto(root, folderId, relPath)
             dao.upsertFiles(listOf(KnownFileEntity(folderId, relPath, freshRemote.sha256, freshRemote.size)))
@@ -318,7 +316,7 @@ class SyncEngine(
 
     private fun planDeletions(
         remoteIndex: Map<String, FileEntry>,
-        localFiles: Map<String, DocumentFile>,
+        localFiles: Map<String, File>,
         known: Map<String, KnownFileEntity>,
     ): Pair<List<String>, List<String>> {
         val localDeletes = mutableListOf<String>()
@@ -329,7 +327,7 @@ class SyncEngine(
             val remote = remoteIndex[relPath]
             val localDoc = localFiles[relPath]
             if (remote == null && localDoc != null) {
-                val localHash = SafFileOps.hashDocument(context, localDoc).sha256
+                val localHash = FileOps.hashDocument(localDoc).sha256
                 if (localHash == lastKnown.sha256) localDeletes.add(relPath)
             } else if (remote != null && localDoc == null) {
                 if (lastKnown.sha256 == remote.sha256) remoteDeletes.add(relPath)
@@ -353,11 +351,11 @@ class SyncEngine(
      * Daten verlieren. */
     private suspend fun syncEmptyDirs(
         folderId: String,
-        root: DocumentFile,
+        root: File,
         remoteDirs: Set<String>,
         knownDirs: MutableSet<String>,
     ): DirSyncResult {
-        val localDirs = SafFileOps.listLocalEmptyDirs(root).toSet()
+        val localDirs = FileOps.listLocalEmptyDirs(root).toSet()
         val createdLocal = mutableListOf<String>()
         val createdRemote = mutableListOf<String>()
         val deletedLocal = mutableListOf<String>()
@@ -373,8 +371,8 @@ class SyncEngine(
 
                 inLocal && !inRemote -> {
                     if (wasKnown) {
-                        val dir = SafFileOps.findDir(root, relPath)
-                        if (dir != null && SafFileOps.deleteEmptyDir(dir)) {
+                        val dir = FileOps.findDir(root, relPath)
+                        if (dir != null && FileOps.deleteEmptyDir(dir)) {
                             knownDirs.remove(relPath)
                             deletedLocal.add(relPath)
                         } else {
@@ -396,7 +394,7 @@ class SyncEngine(
                             knownDirs.add(relPath)
                         }
                     } else {
-                        SafFileOps.findOrCreateDir(root, relPath)
+                        FileOps.findOrCreateDir(root, relPath)
                         knownDirs.add(relPath)
                         createdLocal.add(relPath)
                     }
@@ -411,17 +409,17 @@ class SyncEngine(
     private suspend fun uploadFile(
         folderId: String,
         relPath: String,
-        localDoc: DocumentFile,
+        localDoc: File,
         remoteBlocks: List<String>?,
         expected: String?,
     ): UploadResult {
-        val hashResult = SafFileOps.hashDocument(context, localDoc, BLOCK_SIZE)
+        val hashResult = FileOps.hashDocument(localDoc, BLOCK_SIZE)
         val remoteB = remoteBlocks ?: emptyList()
         val changed = hashResult.blocks.indices.filter { i -> i >= remoteB.size || remoteB[i] != hashResult.blocks[i] }
-        val changedBytes = SafFileOps.readBlocks(context, localDoc, changed, BLOCK_SIZE)
+        val changedBytes = FileOps.readBlocks(localDoc, changed, BLOCK_SIZE)
         val meta = UploadMeta(
-            size = SafFileOps.size(localDoc),
-            mtime = SafFileOps.lastModifiedSeconds(localDoc),
+            size = FileOps.size(localDoc),
+            mtime = FileOps.lastModifiedSeconds(localDoc),
             blockSize = BLOCK_SIZE,
             blocks = hashResult.blocks,
             changed = changed,
@@ -430,12 +428,12 @@ class SyncEngine(
         return client.upload(folderId, relPath, meta, changedBytes)
     }
 
-    private suspend fun downloadInto(root: DocumentFile, folderId: String, relPath: String) {
-        val tmp = SafFileOps.createTempTarget(root, relPath)
-        context.contentResolver.openOutputStream(tmp.uri)!!.use { out ->
+    private suspend fun downloadInto(root: File, folderId: String, relPath: String) {
+        val tmp = FileOps.createTempTarget(root, relPath)
+        FileOutputStream(tmp).use { out ->
             client.download(folderId, relPath, out)
         }
-        SafFileOps.commitTempTarget(root, relPath, tmp)
+        FileOps.commitTempTarget(root, relPath, tmp)
     }
 
     /** Best-effort -- darf den bereits abgeschlossenen Sync-Lauf nicht
@@ -445,7 +443,9 @@ class SyncEngine(
      * Aenderungen das Activity Log zuspammen (siehe T-212-SYNC). */
     private suspend fun logSummary(folderId: String, result: SyncResult) {
         val total = result.uploaded.size + result.downloaded.size +
-            result.deletedLocal.size + result.deletedRemote.size
+            result.deletedLocal.size + result.deletedRemote.size +
+            result.dirsCreatedLocal.size + result.dirsCreatedRemote.size +
+            result.dirsDeletedLocal.size + result.dirsDeletedRemote.size
         if (total == 0) return
         try {
             client.logSync(
@@ -461,6 +461,10 @@ class SyncEngine(
                     deletedLocalPaths = result.deletedLocal,
                     deletedRemotePaths = result.deletedRemote,
                     conflictPaths = result.conflicts,
+                    dirsCreatedLocalPaths = result.dirsCreatedLocal,
+                    dirsCreatedRemotePaths = result.dirsCreatedRemote,
+                    dirsDeletedLocalPaths = result.dirsDeletedLocal,
+                    dirsDeletedRemotePaths = result.dirsDeletedRemote,
                 ),
             )
         } catch (_: Exception) {

@@ -106,6 +106,13 @@ data class SyncSummary(
     @SerialName("deleted_local_paths") val deletedLocalPaths: List<String> = emptyList(),
     @SerialName("deleted_remote_paths") val deletedRemotePaths: List<String> = emptyList(),
     @SerialName("conflict_paths") val conflictPaths: List<String> = emptyList(),
+    // Ordner-Anlegen/-Löschen (T-340-SYNC) -- zählen bewusst NICHT in den
+    // obigen Int-Feldern mit (kein Activity-Log-Rauschen für leere Ordner),
+    // landen aber im datei-genauen Verlauf.
+    @SerialName("dirs_created_local_paths") val dirsCreatedLocalPaths: List<String> = emptyList(),
+    @SerialName("dirs_created_remote_paths") val dirsCreatedRemotePaths: List<String> = emptyList(),
+    @SerialName("dirs_deleted_local_paths") val dirsDeletedLocalPaths: List<String> = emptyList(),
+    @SerialName("dirs_deleted_remote_paths") val dirsDeletedRemotePaths: List<String> = emptyList(),
 )
 
 /** Eine Zeile aus astrapi_sync/modules/folders/history.py::list_history() --

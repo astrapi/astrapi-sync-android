@@ -1,7 +1,7 @@
 package de.astrapi.sync.ui.conflicts
 
 import android.app.Application
-import android.net.Uri
+import java.io.File
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import de.astrapi.sync.SyncApp
@@ -16,7 +16,7 @@ data class ConflictUiItem(
     val folderId: String,
     val path: String,
     val folderDescription: String,
-    val treeUri: Uri,
+    val folderPath: String,
     val localSize: Long,
     val remoteSize: Long,
     val detectedAt: Long,
@@ -58,7 +58,7 @@ class ConflictsViewModel(application: Application) : AndroidViewModel(applicatio
                         folderId = c.folderId,
                         path = c.path,
                         folderDescription = binding.description,
-                        treeUri = Uri.parse(binding.treeUri),
+                        folderPath = binding.folderPath,
                         localSize = c.localSize,
                         remoteSize = c.remoteSize,
                         detectedAt = c.detectedAt,
@@ -80,9 +80,9 @@ class ConflictsViewModel(application: Application) : AndroidViewModel(applicatio
         updateItem(item) { it.copy(isResolving = true, errorMessage = null) }
         viewModelScope.launch {
             try {
-                val engine = SyncEngine(app, app.apiClient(), dao)
+                val engine = SyncEngine(app.apiClient(), dao)
                 val label = app.securePrefs.deviceLabel.ifBlank { "android" }
-                engine.resolveConflict(item.folderId, item.treeUri, label, item.path, keepLocal)
+                engine.resolveConflict(item.folderId, File(item.folderPath), label, item.path, keepLocal)
                 // Kein manuelles Entfernen aus der Liste nötig -- resolveConflict()
                 // löscht die Zeile aus pending_conflicts, der Flow oben bekommt
                 // das automatisch mit.

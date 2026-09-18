@@ -22,9 +22,11 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import de.astrapi.sync.ui.conflicts.ConflictsScreen
 import de.astrapi.sync.ui.folders.FolderListScreen
 import de.astrapi.sync.ui.history.HistoryScreen
@@ -37,7 +39,8 @@ private const val ROUTE_PAIRING = "pairing"
 private const val ROUTE_FOLDERS = "folders"
 private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_CONFLICTS = "conflicts"
-private const val ROUTE_HISTORY = "history"
+private const val ROUTE_HISTORY = "history/{folderId}"
+private const val ARG_FOLDER_ID = "folderId"
 
 class MainActivity : ComponentActivity() {
 
@@ -134,7 +137,7 @@ private fun AppNavHost(startPaired: Boolean, openConflicts: Boolean = false) {
             FolderListScreen(
                 onOpenSettings = { navController.navigate(ROUTE_SETTINGS) },
                 onOpenConflicts = { navController.navigate(ROUTE_CONFLICTS) },
-                onOpenHistory = { navController.navigate(ROUTE_HISTORY) },
+                onOpenHistory = { folderId -> navController.navigate("history/$folderId") },
             )
         }
         composable(ROUTE_SETTINGS) {
@@ -143,8 +146,12 @@ private fun AppNavHost(startPaired: Boolean, openConflicts: Boolean = false) {
         composable(ROUTE_CONFLICTS) {
             ConflictsScreen(onBack = { navController.popBackStack() })
         }
-        composable(ROUTE_HISTORY) {
-            HistoryScreen(onBack = { navController.popBackStack() })
+        composable(
+            route = ROUTE_HISTORY,
+            arguments = listOf(navArgument(ARG_FOLDER_ID) { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val folderId = backStackEntry.arguments?.getString(ARG_FOLDER_ID) ?: return@composable
+            HistoryScreen(folderId = folderId, onBack = { navController.popBackStack() })
         }
     }
 }

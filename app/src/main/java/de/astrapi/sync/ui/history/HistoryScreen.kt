@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Refresh
@@ -31,6 +32,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -40,26 +42,32 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 
-/** Zeigt den datei-genauen Sync-Verlauf über alle gebundenen Ordner hinweg
- * (T-338-SYNC), server-seitig gespeist über HistoryViewModel. Gleiches
- * Grundgerüst wie ConflictsScreen (Top-Bar mit Zurück, LazyColumn aus
- * Cards, Empty-State). */
+/** Zeigt den datei-genauen Sync-Verlauf EINES Ordners (T-338-SYNC),
+ * server-seitig gespeist über HistoryViewModel. Gleiches Grundgerüst wie
+ * ConflictsScreen (Top-Bar mit Zurück, LazyColumn aus Cards, Empty-State). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HistoryScreen(onBack: () -> Unit, viewModel: HistoryViewModel = viewModel()) {
+fun HistoryScreen(folderId: String, onBack: () -> Unit, viewModel: HistoryViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsState()
+
+    LaunchedEffect(folderId) { viewModel.refresh(folderId) }
 
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("Verlauf", style = MaterialTheme.typography.titleLarge) },
+                title = {
+                    Text(
+                        state.folderDescription.ifBlank { "Verlauf" },
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück")
                     }
                 },
                 actions = {
-                    IconButton(onClick = viewModel::refresh) {
+                    IconButton(onClick = { viewModel.refresh(folderId) }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Aktualisieren")
                     }
                 },
@@ -86,7 +94,7 @@ fun HistoryScreen(onBack: () -> Unit, viewModel: HistoryViewModel = viewModel())
                 else -> LazyColumn(modifier = Modifier.padding(top = 8.dp)) {
                     items(
                         state.items,
-                        key = { "${it.folderId}/${it.path}/${it.syncedAt}/${it.action}" },
+                        key = { "${it.path}/${it.syncedAt}/${it.action}" },
                     ) { item -> HistoryRow(item) }
                 }
             }
@@ -127,6 +135,8 @@ private fun actionIcon(action: String): ImageVector = when (action) {
     "downloaded" -> Icons.Default.CloudDownload
     "deleted_local", "deleted_remote" -> Icons.Default.Delete
     "conflict" -> Icons.Default.WarningAmber
+    "dir_created_local", "dir_created_remote" -> Icons.Default.CreateNewFolder
+    "dir_deleted_local", "dir_deleted_remote" -> Icons.Default.Delete
     else -> Icons.Default.History
 }
 
@@ -166,7 +176,7 @@ private fun HistoryRow(item: HistoryUiItem) {
                 Text(item.path, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
             }
             Text(
-                "${item.actionLabel} · ${item.folderDescription} · ${relativeTimeOrRaw(item.syncedAt)}",
+                "${item.actionLabel} · ${relativeTimeOrRaw(item.syncedAt)}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp),

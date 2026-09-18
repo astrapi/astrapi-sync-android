@@ -73,6 +73,11 @@ class PairingViewModel(application: Application) : AndroidViewModel(application)
                     deviceLabel = label
                 }
                 app.scheduleBackgroundSync()
+                // T-340-SYNC-Nachtest: FileWatchService hängt jetzt nur
+                // noch am Pairing-Status, nicht mehr an MainActivity --
+                // SyncApp.onCreate() hat isPaired beim allerersten Pairing
+                // noch als false gesehen, daher hier explizit nachholen.
+                app.startFileWatchService()
                 _uiState.value = _uiState.value.copy(isLoading = false, paired = true)
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(

@@ -14,7 +14,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FolderBindingEntity::class,
         PendingConflictEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -79,6 +79,30 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** T-340-SYNC: SAF-Tree-Uri (treeUri) durch echten Dateisystem-Pfad
+         * (folderPath) ersetzt. Bewusst KEINE Übernahme der alten Werte --
+         * eine SAF-Uri ("content://...") ist kein gültiger folderPath, ein
+         * automatischer Umrechnungsversuch über DocumentsContract wäre
+         * provider-/geräteabhängig und nicht zuverlässig (Nutzerentscheidung
+         * 2026-09-17, astrapi-hub-Vault: Neu-Binden verlangen statt
+         * migrieren). Die Zeilen werden daher verworfen, der Nutzer bindet
+         * betroffene Ordner über "+" neu -- known_files/known_dirs/
+         * pending_conflicts bleiben dabei je folderId unangetastet, sodass
+         * bereits synchronisierter Zustand nach dem Neu-Binden erhalten
+         * bleibt. */
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE folder_bindings_new (" +
+                        "`folderId` TEXT NOT NULL, `folderPath` TEXT NOT NULL, " +
+                        "`description` TEXT NOT NULL, `lastSyncedAt` INTEGER, " +
+                        "`color` TEXT, PRIMARY KEY(`folderId`))",
+                )
+                db.execSQL("DROP TABLE folder_bindings")
+                db.execSQL("ALTER TABLE folder_bindings_new RENAME TO folder_bindings")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -86,7 +110,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "astrapi-sync.db",
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     // Nur fuer den Fall eines manuellen Downgrades (aeltere
                     // APK ueber neuere installiert) -- dafuer gibt es keine
                     // sinnvolle Migration, aber Vorwaertsupdates duerfen nie

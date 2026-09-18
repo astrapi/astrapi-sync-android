@@ -13,6 +13,8 @@ import de.astrapi.sync.data.AppPreferences
 import de.astrapi.sync.data.SecurePrefs
 import de.astrapi.sync.network.ApiClient
 import de.astrapi.sync.sync.ConflictNotifications
+import de.astrapi.sync.sync.FileSystemWatcher
+import de.astrapi.sync.sync.FileWatchService
 import de.astrapi.sync.sync.SyncWorker
 import java.util.concurrent.TimeUnit
 
@@ -25,6 +27,12 @@ class SyncApp : Application() {
     val preferences by lazy { AppPreferences(this) }
     val database by lazy { AppDatabase.get(this) }
 
+    /** Echtzeit-Erkennung lokaler Dateiänderungen, siehe T-339-SYNC/
+     * T-340-SYNC. Start/Stop übernimmt seit dem T-340-SYNC-Nachtest
+     * FileWatchService (Foreground-Service), nicht mehr MainActivity --
+     * siehe dessen Doc-Kommentar für die Begründung. */
+    val fileSystemWatcher by lazy { FileSystemWatcher(this) }
+
     override fun onCreate() {
         super.onCreate()
         // Erneutes Erstellen bei jedem App-Start ist folgenlos --
@@ -34,9 +42,22 @@ class SyncApp : Application() {
         // Sicherheitsnetz für den Fall, dass die WorkManager-eigene
         // Neuplanung nach einem Reboot mal nicht greift -- KEEP macht
         // wiederholtes Aufrufen (jeder App-Start) folgenlos, solange
-        // schon ein Job eingeplant ist.
-        if (securePrefs.isPaired) scheduleBackgroundSync()
+        // schon ein Job eingeplant ist. Gleiches Argument gilt für den
+        // Foreground-Service: startForegroundService() auf einen bereits
+        // laufenden Service ruft nur erneut onStartCommand() auf, ohne
+        // den Watcher neu zu registrieren (FileSystemWatcher.start() ist
+        // selbst idempotent).
+        if (securePrefs.isPaired) {
+            scheduleBackgroundSync()
+            startFileWatchService()
+        }
     }
+
+    /** Siehe FileWatchService-Doc-Kommentar. Muss sowohl hier (App-/
+     * Prozessstart) als auch direkt nach erfolgreichem Pairing aufgerufen
+     * werden (PairingViewModel.pair()) -- onCreate() ist beim allerersten
+     * Pairing ja schon gelaufen, bevor securePrefs.isPaired wahr wird. */
+    fun startFileWatchService() = FileWatchService.start(this)
 
     /** Neu erstellt statt gecacht -- Server-URL/Token können sich
      * ändern (z.B. nach erneutem Pairing), ein alter Client-Zustand

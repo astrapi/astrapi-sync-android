@@ -1,7 +1,7 @@
 package de.astrapi.sync.ui.folders
 
 import android.app.Application
-import android.net.Uri
+import java.io.File
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import de.astrapi.sync.SyncApp
@@ -18,7 +18,7 @@ import kotlinx.coroutines.launch
 data class FolderUiItem(
     val folderId: String,
     val description: String,
-    val boundUri: Uri,
+    val boundPath: String,
     /** Epoch-Millis, persistiert -- siehe FolderBindingEntity.lastSyncedAt. */
     val lastSyncedAt: Long? = null,
     /** Nur session-lokales Ergebnis des letzten manuellen Sync-Laufs
@@ -95,7 +95,7 @@ class FolderListViewModel(application: Application) : AndroidViewModel(applicati
                             FolderUiItem(
                                 folderId = b.folderId,
                                 description = b.description,
-                                boundUri = Uri.parse(b.treeUri),
+                                boundPath = b.folderPath,
                                 lastSyncedAt = b.lastSyncedAt,
                                 statusText = existing?.statusText,
                                 isSyncing = existing?.isSyncing ?: false,
@@ -148,17 +148,17 @@ class FolderListViewModel(application: Application) : AndroidViewModel(applicati
         )
     }
 
-    /** Persistierbare Zugriffsberechtigung muss der Aufrufer (Compose-
-     * Layer, hat den ActivityResult-Callback) bereits über
-     * ContentResolver.takePersistableUriPermission() gesichert haben,
-     * bevor diese Funktion aufgerufen wird -- sonst überlebt die
-     * Berechtigung keinen App-/Geräte-Neustart. */
-    fun bindFolder(folder: FolderInfo, treeUri: Uri) {
+    /** Seit T-340-SYNC keine SAF-Persistierung mehr nötig --
+     * MANAGE_EXTERNAL_STORAGE gilt app-weit und überlebt App-/Geräte-
+     * Neustarts ohne separate Freigabe pro Ordner. Der Aufrufer (Compose-
+     * Layer) muss die Berechtigung vor dem Aufruf lediglich erteilt
+     * haben (siehe FolderListScreen). */
+    fun bindFolder(folder: FolderInfo, path: File) {
         viewModelScope.launch {
             dao.upsertBinding(
                 FolderBindingEntity(
                     folderId = folder.id,
-                    treeUri = treeUri.toString(),
+                    folderPath = path.absolutePath,
                     description = folder.description,
                     color = folder.color,
                 ),
@@ -189,9 +189,9 @@ class FolderListViewModel(application: Application) : AndroidViewModel(applicati
         updateItem(folderId) { it.copy(isSyncing = true, statusText = null) }
         viewModelScope.launch {
             try {
-                val engine = SyncEngine(app, app.apiClient(), dao)
+                val engine = SyncEngine(app.apiClient(), dao)
                 val label = app.securePrefs.deviceLabel.ifBlank { "android" }
-                val result = engine.syncFolderOnce(folderId, item.boundUri, label, confirmDeletes = confirmDeletes)
+                val result = engine.syncFolderOnce(folderId, File(item.boundPath), label, confirmDeletes = confirmDeletes)
                 val total = result.uploaded.size + result.downloaded.size +
                     result.deletedLocal.size + result.deletedRemote.size
                 val text = when {
