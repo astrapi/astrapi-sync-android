@@ -48,6 +48,10 @@ data class FolderListUiState(
     val availableFolders: List<FolderInfo> = emptyList(),
     val addErrorMessage: String? = null,
     val pendingDeleteConfirmation: PendingDeleteConfirmation? = null,
+    /** Ordner, für den gerade "Entfernen" bestätigt werden soll -- trennt
+     * bewusst nur die Kopplung (siehe unbindFolder()), rührt nie an den
+     * lokalen Dateien. */
+    val pendingUnbind: FolderUiItem? = null,
 )
 
 class FolderListViewModel(application: Application) : AndroidViewModel(application) {
@@ -166,6 +170,29 @@ class FolderListViewModel(application: Application) : AndroidViewModel(applicati
             // Kein manuelles Neuladen nötig -- observeBound() bekommt den
             // neuen Ordner automatisch über den Flow mit.
             _uiState.value = _uiState.value.copy(showAddSheet = false, availableFolders = emptyList())
+        }
+    }
+
+    fun onRemoveClicked(folderId: String) {
+        val item = _uiState.value.folders.find { it.folderId == folderId } ?: return
+        _uiState.value = _uiState.value.copy(pendingUnbind = item)
+    }
+
+    fun dismissUnbind() {
+        _uiState.value = _uiState.value.copy(pendingUnbind = null)
+    }
+
+    /** Trennt nur die Kopplung (Server-Ordner <-> lokaler Pfad) samt
+     * ihres bekannten Sync-Zustands -- der lokale Ordner und sein Inhalt
+     * bleiben unangetastet. FileSystemWatcher.syncObservers() beendet die
+     * Beobachtung für diesen Ordner automatisch, sobald er aus
+     * allBindingsFlow() verschwindet, ein manueller Stop ist hier also
+     * nicht nötig. */
+    fun confirmUnbind() {
+        val item = _uiState.value.pendingUnbind ?: return
+        _uiState.value = _uiState.value.copy(pendingUnbind = null)
+        viewModelScope.launch {
+            dao.removeBindingCompletely(item.folderId)
         }
     }
 

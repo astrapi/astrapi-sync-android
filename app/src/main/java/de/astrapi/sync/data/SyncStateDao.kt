@@ -67,6 +67,25 @@ interface SyncStateDao {
     @Query("DELETE FROM folder_bindings WHERE folderId = :folderId")
     suspend fun removeBinding(folderId: String)
 
+    @Query("DELETE FROM pending_conflicts WHERE folderId = :folderId")
+    suspend fun clearPendingConflicts(folderId: String)
+
+    /** Entfernt eine Bindung vollständig inkl. ihres gesamten bekannten
+     * Sync-Zustands (bekannte Dateien/Verzeichnisse, offene Konflikte) --
+     * ohne dies würden verwaiste known_files/known_dirs/pending_conflicts-
+     * Zeilen mit derselben folderId zurückbleiben, falls derselbe
+     * Server-Ordner später erneut verbunden wird (führte sonst zu falschen
+     * "server-seitig gelöscht"-Erkennungen, siehe FolderBindingEntity-Doc
+     * zu folderPath-Änderungen). Rührt bewusst NICHT an den lokalen Dateien
+     * selbst -- nur die Sync-Kopplung wird aufgehoben. */
+    @Transaction
+    suspend fun removeBindingCompletely(folderId: String) {
+        removeBinding(folderId)
+        clearKnownFiles(folderId)
+        clearKnownDirs(folderId)
+        clearPendingConflicts(folderId)
+    }
+
     @Query("UPDATE folder_bindings SET lastSyncedAt = :timestamp WHERE folderId = :folderId")
     suspend fun updateLastSyncedAt(folderId: String, timestamp: Long)
 

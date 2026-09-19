@@ -44,6 +44,32 @@ class SyncEngine(
          * und "Ordner/Server hat plötzlich unerwartet nichts mehr". */
         const val MAX_AUTO_DELETE = 3
         private const val BLOCK_SIZE = BlockHash.DEFAULT_BLOCK_SIZE
+
+        /** Echo-Unterdrückung für FileSystemWatcher: Zeitpunkt (Epoch-ms),
+         * bis zu dem Dateisystem-Events für einen Ordner als von der
+         * Engine selbst verursacht gelten -- Downloads, Konflikt-Kopien
+         * und DeleteLocal lösen sonst denselben inotify-Mechanismus aus
+         * wie eine echte lokale Nutzeränderung (FileObserver kennt kein
+         * `selfChange`). `Long.MAX_VALUE` während des Laufs, danach ein
+         * kurzes Nachlauf-Fenster, weil inotify-Events leicht verzögert
+         * beim Observer-Thread ankommen können. Ordner-Id als Schlüssel
+         * reicht: der Watcher registriert ohnehin pro Ordner nur einen
+         * FileObserver auf dem Wurzelverzeichnis. */
+        private const val ECHO_GRACE_MILLIS = 1_500L
+        private val suppressedUntil = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+        /** Von FileSystemWatcher aufgerufen, um ein rohes inotify-Event
+         * als Engine-Echo statt echter Nutzeränderung zu erkennen. */
+        fun isOwnChange(folderId: String): Boolean =
+            (suppressedUntil[folderId] ?: 0L) > System.currentTimeMillis()
+
+        private fun markBusy(folderId: String) {
+            suppressedUntil[folderId] = Long.MAX_VALUE
+        }
+
+        private fun markDone(folderId: String) {
+            suppressedUntil[folderId] = System.currentTimeMillis() + ECHO_GRACE_MILLIS
+        }
     }
 
     data class SyncResult(
@@ -77,6 +103,21 @@ class SyncEngine(
         deviceLabel: String,
         confirmDeletes: Boolean = false,
         maxAutoDelete: Int = MAX_AUTO_DELETE,
+    ): SyncResult {
+        markBusy(folderId)
+        try {
+            return syncFolderOnceLocked(folderId, rootDir, deviceLabel, confirmDeletes, maxAutoDelete)
+        } finally {
+            markDone(folderId)
+        }
+    }
+
+    private suspend fun syncFolderOnceLocked(
+        folderId: String,
+        rootDir: File,
+        deviceLabel: String,
+        confirmDeletes: Boolean,
+        maxAutoDelete: Int,
     ): SyncResult {
         val root = FileOps.root(rootDir.absolutePath)
         val index = client.getIndex(folderId)
@@ -263,6 +304,15 @@ class SyncEngine(
      * Konflikts (ggf. beim letzten Hintergrund-Lauf) weitere Zeit
      * vergangen sein kann. */
     suspend fun resolveConflict(folderId: String, rootDir: File, deviceLabel: String, relPath: String, keepLocal: Boolean) {
+        markBusy(folderId)
+        try {
+            resolveConflictLocked(folderId, rootDir, deviceLabel, relPath, keepLocal)
+        } finally {
+            markDone(folderId)
+        }
+    }
+
+    private suspend fun resolveConflictLocked(folderId: String, rootDir: File, deviceLabel: String, relPath: String, keepLocal: Boolean) {
         val root = FileOps.root(rootDir.absolutePath)
         val localDoc = FileOps.findFile(root, relPath)
 

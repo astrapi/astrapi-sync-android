@@ -26,12 +26,18 @@ import kotlinx.coroutines.launch
  * Regelfall.
  *
  * Anders als der frühere ContentObserver kennt FileObserver kein
- * `selfChange` -- ein Download/eine Konflikt-Kopie, die die Engine selbst
- * in den Ordner schreibt, löst also ebenfalls ein Event aus und damit
- * einen weiteren (dann folgenlosen) Sync-Lauf. Bewusst in Kauf genommen:
- * der bestehende 500ms-Debounce und WorkManagers ExistingWorkPolicy.KEEP
- * verhindern echte Parallelläufe, ein zusätzlicher "Bereits aktuell"-Lauf
- * ist kein Korrektheitsproblem.
+ * `selfChange` -- ein Download/eine Konflikt-Kopie/ein DeleteLocal, das die
+ * Engine selbst im Ordner ausführt, löst also ebenfalls ein Event aus. Ohne
+ * Filterung sah das im Log wie eine unabhängig auf DIESEM Gerät erkannte
+ * Änderung aus (z.B. eine vom Server gepushte Löschung, die hier nochmal
+ * als "Löschung auf dem Handy" auftaucht) und konnte bei ungünstigem
+ * Timing (Debounce läuft ab, während der auslösende Lauf seinen
+ * known-Stand noch nicht committed hat) sogar einen echten zweiten
+ * Verarbeitungslauf statt nur eines folgenlosen anstoßen. Deshalb prüft
+ * [onEvent] jetzt SyncEngine.isOwnChange(folderId) -- die Engine markiert
+ * sich selbst für die Laufzeit plus ein kurzes Nachlauf-Fenster (siehe
+ * SyncEngine.markBusy/markDone) als Quelle eigener Events, bevor sie den
+ * Ordner anfasst.
  *
  * Liest die Bindings über allBindingsFlow() statt eines manuellen
  * refresh()-Aufrufs an jeder Änderungsstelle (Pairing, Ordner hinzufügen/
@@ -112,6 +118,10 @@ class FileSystemWatcher(private val app: SyncApp) {
             val observer = object : FileObserver(dir, watchMask) {
                 override fun onEvent(event: Int, path: String?) {
                     Log.d("FileSystemWatcher", "onEvent for $folderId (event=$event, path=$path)")
+                    if (SyncEngine.isOwnChange(folderId)) {
+                        Log.d("FileSystemWatcher", "Ignoring echo from own SyncEngine write for $folderId")
+                        return
+                    }
                     debugToast("Dateisystem-Event erkannt (Ordner $folderId)")
                     scheduleTrigger(folderId)
                 }
@@ -128,9 +138,13 @@ class FileSystemWatcher(private val app: SyncApp) {
             handler.removeCallbacks(it)
         }
         val runnable = Runnable {
+            pendingTriggers.remove(folderId)
+            if (SyncEngine.isOwnChange(folderId)) {
+                Log.d("FileSystemWatcher", "Debounce expired, but $folderId is still within echo grace window, skipping")
+                return@Runnable
+            }
             Log.d("FileSystemWatcher", "Debounce expired, calling triggerImmediateSync()")
             debugToast("Sofort-Sync ausgelöst (Ordner $folderId)")
-            pendingTriggers.remove(folderId)
             app.triggerImmediateSync()
         }
         pendingTriggers[folderId] = runnable

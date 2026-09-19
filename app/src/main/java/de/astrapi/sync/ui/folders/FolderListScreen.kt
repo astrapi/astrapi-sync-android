@@ -22,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Settings
@@ -152,6 +153,7 @@ fun FolderListScreen(
                             item = item,
                             onSyncNow = { viewModel.syncNow(item.folderId) },
                             onOpenHistory = { onOpenHistory(item.folderId) },
+                            onRemove = { viewModel.onRemoveClicked(item.folderId) },
                         )
                     }
                 }
@@ -205,6 +207,14 @@ fun FolderListScreen(
             pending = pending,
             onConfirm = viewModel::confirmPendingDeletions,
             onDismiss = viewModel::dismissPendingDeletions,
+        )
+    }
+
+    state.pendingUnbind?.let { item ->
+        UnbindConfirmationDialog(
+            item = item,
+            onConfirm = viewModel::confirmUnbind,
+            onDismiss = viewModel::dismissUnbind,
         )
     }
 
@@ -324,6 +334,32 @@ private fun DeleteConfirmationDialog(
     )
 }
 
+/** Trennt nur die Kopplung im Sinne von FolderListViewModel.confirmUnbind()
+ * -- der Text stellt daher explizit klar, dass der lokale Ordnerinhalt
+ * erhalten bleibt, um Verwechslung mit einer echten Datei-Löschung
+ * (siehe DeleteConfirmationDialog) zu vermeiden. */
+@Composable
+private fun UnbindConfirmationDialog(
+    item: FolderUiItem,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Synchronisation entfernen?") },
+        text = {
+            Text(
+                "Die Synchronisation für \"${item.description}\" wird entfernt. " +
+                    "Der lokale Ordner \"${File(item.boundPath).name}\" bleibt mitsamt " +
+                    "seinem Inhalt unverändert erhalten -- nur die Kopplung zum Server " +
+                    "wird aufgehoben.",
+            )
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Entfernen") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Abbrechen") } },
+    )
+}
+
 @Composable
 private fun EmptyState(onAddClicked: () -> Unit) {
     Column(
@@ -386,7 +422,12 @@ private fun AvailableFolderRow(folder: FolderInfo, onClick: () -> Unit) {
 }
 
 @Composable
-private fun FolderRow(item: FolderUiItem, onSyncNow: () -> Unit, onOpenHistory: () -> Unit) {
+private fun FolderRow(
+    item: FolderUiItem,
+    onSyncNow: () -> Unit,
+    onOpenHistory: () -> Unit,
+    onRemove: () -> Unit,
+) {
     // Seit T-340-SYNC ein echter Dateisystem-Pfad statt einer SAF-Tree-Uri
     // -- der Anzeigename ist damit einfach der letzte Pfadbestandteil,
     // ohne ContentResolver-Abfrage.
@@ -471,6 +512,9 @@ private fun FolderRow(item: FolderUiItem, onSyncNow: () -> Unit, onOpenHistory: 
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                IconButton(onClick = onRemove) {
+                    Icon(Icons.Default.Delete, contentDescription = "Synchronisation entfernen")
+                }
                 IconButton(onClick = onOpenHistory) {
                     Icon(Icons.Default.History, contentDescription = "Verlauf")
                 }
